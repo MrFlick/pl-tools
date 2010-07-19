@@ -1,0 +1,230 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+extracto - a utility for cutting out certain lines from a file
+
+=head1 SYNOPSIS
+
+    extracto [--start string] [--offset 0] [--end ""] [--lines linerange]
+    [--help] [--man] file ...
+
+=head1 DESCRIPTION
+
+extracto will help you extract data from a file that contains other things
+you may not be interested in. You simply indicate where your data starts,
+where it ends, and the subset of those lines you wish to return.
+
+=head2 OPTIONS
+
+=over 4
+
+=item B<--start>
+
+You can specify a string, or a regular expression, to indicate where
+the data you are intereted in a file begins. If you know of a string
+that you are sure is in the file, but your data starts below it or above
+it, you can use that string as the C<--start> and then specify an
+C<--offset>.
+
+=item B<--offset>
+
+The offset allows you start extraction at a line other than the one
+containing the string indicated by C<--start>. The default is 0 so it
+starts on the same line. A negative value indicates a line above the start
+and positive values indicate a line below the start.
+
+=item B<--end>
+
+By default, extracto assumes the data ends when it encounters a blank line.
+If you specify an alternate string via C<--end>, extracto will stop
+at that line, and will not include the data from that line.
+
+=item B<--lines>
+
+You can specify a subset of lines to return. The line numbers begin
+at 1 and start with the line indicated by the offset. You can list
+as many line numbers as you like, separated by commas (no spaces). 
+Alternately you can specify a range in the form start:end. For
+example, C<--lines 1:3,5,7:10> will return the the first 10 lines leaving
+out lines 4 and 6 for a total of 8 records. If you specify just start:, 
+extaction will begin at line start and continue untill the data ends.
+
+=item B<--help>
+
+Prints a brief help message and exits.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=back
+
+=head2 NOTES
+
+You can read data from the the standard input/pipe by specifying
+C<-> as the filename
+
+=head1 EXAMPLES
+
+Consider this sample data file:
+
+	Important Program Output
+
+	Sample  P-value
+	----------------
+	S001    .5245
+	S002    .000032
+	S003    .459
+
+	A total of 3 samples where analyzed.
+
+To extract just the data and the header, we might run
+
+	extracto --start "-----" --offset -1 --lines 1,3:
+
+Here we tell extracto to look for the dashed line and start
+extracting from the line above it (the header line). Then, 
+we tell extracto to return the first line, skip the second
+(the one with the dashes), and return the remaining lines.
+extracto will stop after the S003 line since it it blank.
+
+=head1 AUTHOR
+
+Matthew Flickinger (mflick@umich.edu)
+
+=cut
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use Pod::Usage;
+
+my $startMarker="";
+my $startOffset=0;
+my $endMarker="";
+my $lines="";
+my ($help, $man) = (0,0);
+
+GetOptions("start=s" => \$startMarker,
+    "offset=i" => \$startOffset, 
+    "end=s" => \$endMarker,
+    "lines=s" => \$lines,
+    "help|?" => \$help,
+    "man" => \$man);
+
+pod2usage(-verbose => 1) if $help;
+pod2usage(-exitstatus => 0, -verbose=>2) if $man;
+pod2usage() if @ARGV==0;
+
+#print STDERR "Extracto\n", "-"x25, "\n";
+#print STDERR "Start At [--start] = $startMarker\n";
+#print STDERR "Start Offset [--offset] = $startOffset\n";
+#print STDERR "End At [--end] = $endMarker\n";
+#print STDERR "Lines [--lines] = $lines\n";
+#print STDERR "Any other command line parameters are used as input file names\n";
+#print STDERR "The values for all the input files are merged into one file\n\n";
+
+if (@ARGV>0) {
+    foreach my $file (@ARGV) {
+        if (open(FIN, "< $file")) {
+
+            my $readOpen = 0;
+            my $matchCount = 0;
+            my ($lineCheckRef, $maxLine) = parseLineRange($lines);
+
+            #set up buffer for negative offset
+            my @buffer;
+            my ($bufferSize, $bufferIndex) = (0,0);
+            my $thisOffset = 0;
+            if ($startOffset<0) {
+                $thisOffset = 0;
+                $bufferSize = abs($startOffset);
+            } else {
+                $thisOffset = $startOffset;
+                $bufferSize = 0;
+            };
+
+            while(my $line = <FIN>) {
+                if ($readOpen && ( ($endMarker eq "" && $line eq "\n") 
+                    or ($endMarker ne "" && $line =~ /$endMarker/)) ) {
+                    last;
+                }
+                if (!$readOpen && $line =~ /$startMarker/) {
+                    $readOpen=1;
+
+                    #parse items in buffer (if present)
+                    if ($bufferSize>0) {
+                        for(my $i=0; $i<$bufferSize; $i++) {
+                            if(&$lineCheckRef(++$matchCount)) {
+                                my $idx = ($i + $bufferIndex) % $bufferSize;
+                                print $buffer[$idx] if $buffer[$idx];
+                            };
+                        }
+                        @buffer = ();
+                    }
+                }
+                if ($readOpen) {
+                    if ($thisOffset>0) {
+                        $thisOffset--;
+                        next;
+                    }
+                    if(&$lineCheckRef(++$matchCount)) {
+                        print $line;
+                    } else {
+                        #print "skipped line $matchCount: $line";
+                    }
+                    if ($maxLine>0 && $matchCount >= $maxLine) {
+                        last;
+                    }
+                } elsif ($bufferSize>0) {
+                    #store in buffer in case start is in next few lines
+                    $buffer[$bufferIndex] = $line;
+                    $bufferIndex = ($bufferIndex+1) % $bufferSize;
+                }
+            }
+            close(FIN);
+        } else {
+            print STDERR "Cannot open file $file ($!)\n";
+        }
+    }
+} else {
+    print STDERR "No files specified.\n";
+    print STDERR "Try $0 *.txt\n";
+}
+
+sub parseLineRange {
+    my $rng = shift;
+    if (!$rng) {
+        return (sub {return 1}, 0);
+    }
+    my @lineblocks;
+    foreach my $grp (split(",", $rng)) {
+        if ($grp !~ m/:/) {
+            push(@lineblocks, [int($grp), int($grp)]);
+        } else {
+            my @ss = split(":", $grp);
+            if ($ss[1]) {
+                #in the form "start:stop"
+                push(@lineblocks, [int($ss[0]), int($ss[1])]);
+            } else {
+                #in the form "start:"  (go to end);
+                push(@lineblocks, [int($ss[0]), 0]);
+            }
+        }
+    }
+    @lineblocks = sort {$a->[0] cmp $b->[0]} @lineblocks;
+    return (sub {
+        my $line = shift;
+        foreach my $r (@lineblocks) {
+            last if $line < $r->[0];
+            if($line >= $r->[0] and ($r->[1] == 0 or $line <= $r->[1])) {
+                return 1;
+                last;
+            };
+        }
+        return 0;
+    }, $lineblocks[$#lineblocks]->[1]);
+}
+

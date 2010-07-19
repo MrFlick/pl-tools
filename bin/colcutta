@@ -1,0 +1,364 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+colcutta  - a utility for converting fixed width data files to tab-delimited files
+
+=head1 DESCRIPTION
+
+colcutta [--breaks breakpoints] [--preview] [--peek lines] file
+
+=head2 OPTIONS
+
+=over 4
+
+=item B<--breaks>
+
+You may specify the columns where the data should be split. You may pass
+in a list of numbers separated by commas (no spaces). If you specify
+a break point at point k, the line will be split after the k-th character.
+If you do not specify a C<--breaks> parameter, the program will attempt to
+guess where the breaks are.
+
+=item B<--preview>
+
+If you choose the preview option, you will see how your file will
+be broken up. Additioanlly, a column counter will be drawn to make it easier
+to specify the locations of break points. You can change the number of lines
+shown in the preview with C<--previewLength> (the default is 10).
+
+=item B<--peek>
+
+If you do not specify C<--breaks>, the program will attempt to guess
+where by breaks are by looking at the first few lines of the file
+(the default is 50). You can change this number via the C<--peek>
+option.
+
+=item B<--help>
+
+Prints a brief help message and exists.
+
+=item B<--man>
+
+Prints the manual and exists.
+
+=back
+
+=head2 NOTES
+
+After splitting the data at the requested breakpoints, this utility will
+trim off whitespace from each of the columns and delimit them with tabs.
+Data is sent to standard out.
+
+=head1 EXAMPLES
+
+Consider the following data file (test-fixed.txt):
+
+	Sample  Count  P-value
+	S001    500    .5245
+	S002           N/A
+	S003    400    .459
+	S004    450    .000032
+	S005    3      .99
+
+Note that this file would be problematic to split in Perl on spaces since 
+one of the columns has no value (just spaces). However, if we split on 
+character position, everything will work fine. We can split this file with just
+
+	colcutta text-fixed.txt
+
+and the program will guess the break points by finding column that contain
+only spaces. We can preview this split with
+
+	colcutta --preview text-fixed.txt
+
+which will return 
+
+	--breaks=8,15
+
+	00000000|0111111|11112222
+	12345678|9012345|67890123
+	-------------------------
+	Sample  |Count  |P-value
+	S001    |500    |.5245
+	S002    |       |N/A
+	S003    |400    |.459
+	S004    |450    |.000032
+	S005    |3      |.99
+
+so we can see that the cuts are in the proper place. If we wanted to split
+off the first column as well, we could run
+
+	colcutta --breaks 1,8,15 --preview text-fixed.txt
+
+which would return
+
+	--breaks=1,8,15
+
+	0|0000000|0111111|11112222
+	1|2345678|9012345|67890123
+	--------------------------
+	S|ample  |Count  |P-value
+	S|001    |500    |.5245
+	S|002    |       |N/A
+	S|003    |400    |.459
+	S|004    |450    |.000032
+	S|005    |3      |.99
+
+Leaving off C<--preview> will send the results to standard output.
+
+=head1 AUTHOR
+
+Matthew Flickinger (mflick@umich.edu)
+
+=cut
+
+use strict;
+use warnings;
+use IO::Seekable;
+
+use Getopt::Long;
+use Pod::Usage;
+
+my $preview = 0;
+my $previewLength = 10;
+my $peekLength = 50;
+my $breakString = "";
+my ($help, $man) = (0,0);
+
+GetOptions("preview" => \$preview,
+	"previewLength=i" => \$previewLength,
+	"peek=i" => \$peekLength,
+	"breaks=s" => \$breakString,
+	"help|?" => \$help,
+	"man" => \$man
+);
+
+pod2usage(-verbose => 1) if $help;
+pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+pod2usage() if @ARGV==0;
+
+
+foreach my $file (@ARGV) {
+	if (open(FIN, "< $file")) {
+		processFile(*FIN);
+	} else {
+		print STDERR "Cannot open file $file ($!)\n";
+	}
+	close(FIN);
+}
+
+
+sub processFile {
+	local *FIN = shift;
+
+	my @breaks;
+	my @lineCache;
+	if ($breakString) {
+		@breaks = split(",",$breakString);
+		@lineCache = ();
+	} else {
+		my ($br, $lcr) = sniffForBreaks(*FIN, $peekLength);
+		@breaks = @$br;
+		@lineCache = @$lcr;
+	}
+
+	@breaks = sort {$a <=> $b} @breaks;
+
+	if ($preview) {
+		previewFile(*FIN, \@breaks, \@lineCache);	
+	} else {
+		splitFile(*FIN, \@breaks, \@lineCache);	
+	}
+	#print "\n";
+	#print joinWithBreaks(\@data, \@breaks), "\n";
+	#print joinWithBreaks(\@strength, \@breaks), "\n";
+}
+
+sub previewFile {
+	local *FIN = shift;
+	my $breakRef = shift;
+	my $cacheRef = shift;
+
+	my $returned=0;
+	print "Preview Mode\n\n";
+	print "--breaks=", join(",", @$breakRef),"\n\n";
+
+	my $colCount=0;
+	$colCount = @$breakRef[$#$breakRef] if @$breakRef;
+	fillCache(*FIN, $cacheRef, 5) if @$cacheRef==0;
+	foreach (@$cacheRef) {
+		$colCount=length($_) if length($_)>$colCount;
+	}
+
+
+	print joinWithBreaks([map({int(($_ % 100)/10)} 1..$colCount)], $breakRef), "\n";
+	print joinWithBreaks([map({$_ % 10} 1..$colCount)], $breakRef), "\n";
+	print "-"x($colCount+@$breakRef),"\n";
+
+	while(my $line = shift @$cacheRef) {
+		last if $returned>=$previewLength;
+		printPreviewSplitData($line, $breakRef);
+		$returned++;
+	}
+	while(my $line = <FIN>) {
+		last if $returned>=$previewLength;
+		chomp($line);
+		printPreviewSplitData($line, $breakRef);
+		$returned++;
+	}
+}
+
+sub splitFile {
+	local *FIN = shift;
+	my $breakRef = shift;
+	my $cacheRef = shift;
+
+	while(my $line = shift @$cacheRef) {
+		printSplitData($line, $breakRef);
+	}
+	while(my $line = <FIN>) {
+		chomp($line);
+		printSplitData($line, $breakRef);
+	}
+}
+
+sub fillCache {
+	local *FIN = shift;
+	my $cacheRef = shift;
+	my $count = shift;
+
+	while(<FIN>) {
+		chomp;
+		push @$cacheRef, $_;
+		$count--;
+		last if $count==0;
+	}
+}
+
+sub joinWithBreaks {
+	my $dataRef = shift;
+	my $breakRef = shift;
+	my $joined="";
+
+	for(my $i=0; $i <@$dataRef; $i++) {
+		$joined .= $dataRef->[$i];
+		if(grep($_==$i+1, @$breakRef)) {
+			$joined .= "|";
+		}
+	}
+	return $joined;
+}
+
+
+sub sniffForBreaks {
+	local *FIN = shift;
+	my $peekLines = shift;
+
+	my @breaks=();
+	my @lineCache=();
+
+	my @data;
+	
+	fillCache(*FIN, \@lineCache, $peekLines);
+
+	foreach (@lineCache) {
+		my @cols = unpack("C*", $_);
+		for(my $i=0; $i<@cols; $i++) {
+			if ($cols[$i]!=32) {
+				$data[$i]++;
+			}
+		}
+	}
+
+	my ($dmin, $dmax) = (scalar(@lineCache),0);
+	for (my $i=0; $i<@data; $i++) {
+		$data[$i] = 0 if not $data[$i];
+		$dmax = $data[$i] if $data[$i]>$dmax;
+		$dmin = $data[$i] if $data[$i]<$dmin;
+	}
+	#print "data $dmin-$dmax\n";
+
+	my @strength = map{ if ($_>=(3*$dmax+$dmin)/4) {3}
+		elsif ($_==$dmin) {0}
+		elsif ($_<=($dmax+3*$dmin)/4) {1} 
+		else {2}
+		}  @data;
+
+	my $breakStart=0;
+	my $softStart=0;
+	for (my $col=1; $col<@strength; $col++) {
+		if ($breakStart) {
+			if ($strength[$col] != 0) {
+				if ($strength[$breakStart-1]>$strength[$col]) { 
+					push @breaks, $breakStart;
+				} else {
+					push @breaks, $col;
+				}
+				$breakStart = 0;
+			}
+		} elsif ($strength[$col] == 0 ) {
+			$breakStart = $col;
+			$softStart = 0;
+		} elsif ($softStart) {
+			if ($strength[$col] >= 3) {
+				push @breaks, $col;
+			}
+		} elsif ($strength[$col] == 1) {
+			$softStart = $col;
+		}
+	}
+
+	return \@breaks, \@lineCache;
+}
+
+sub printPreviewSplitData {
+	my $line = shift;
+	my $breakRef = shift;
+
+	my $b1=0;
+	foreach my $b2 (@$breakRef) {
+		if ($b2 <= length($line)) {
+			print substr($line, $b1, $b2-$b1) , "|";
+		} elsif ( $b1 < length($line)) {
+			print substr($line, $b1) , " "x($b2-length($line)),"|";
+		} else {
+			print " "x($b2-$b1),"|";
+		}
+		$b1=$b2;
+	}
+	if ($b1 < length($line)) {
+		print substr($line, $b1);
+	}
+	print "\n";
+}
+
+sub printSplitData {
+	my $line = shift;
+	my $breakRef = shift;
+
+	my $b1=0;
+	foreach my $b2 (@$breakRef) {
+		if ($b2 <= length($line)) {
+			print trim(substr($line, $b1, $b2-$b1)),  "\t";
+		} elsif ( $b1 < length($line)) {
+			print trim(substr($line, $b1)), "\t";
+		} else {
+			print "\t";
+		}
+		$b1=$b2;
+	}
+	if ($b1 < length($line)) {
+		print substr($line, $b1);
+	}
+	print "\n";
+}
+
+sub trim($)
+{
+	my $string = shift;
+	$string =~ s/^\s+//;
+	$string =~ s/\s+$//;
+	return $string;
+}
+
