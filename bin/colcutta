@@ -170,9 +170,6 @@ sub processFile {
 	} else {
 		splitFile(*FIN, \@breaks, \@lineCache);	
 	}
-	#print "\n";
-	#print joinWithBreaks(\@data, \@breaks), "\n";
-	#print joinWithBreaks(\@strength, \@breaks), "\n";
 }
 
 sub previewFile {
@@ -285,31 +282,64 @@ sub sniffForBreaks {
 		else {2}
 		}  @data;
 
+	findBreaksFromStrength(\@strength, \@breaks);	
+
+	print "\n";
+	#print joinWithBreaks(\@data, \@breaks), "\n";
+	print joinWithBreaks(\@strength, \@breaks), "\n";
+	
+	return \@breaks, \@lineCache;
+}
+
+sub findBreaksFromStrength {
+	my $strengthRef = shift;
+	my $breakRef = shift;
+
 	my $breakStart=0;
-	my $softStart=0;
-	for (my $col=1; $col<@strength; $col++) {
+	my $monoStart=0;
+	my $monoValue=0;
+	my $monoDirection=0;
+	for (my $col=1; $col<@$strengthRef; $col++) {
 		if ($breakStart) {
-			if ($strength[$col] != 0) {
-				if ($strength[$breakStart-1]>$strength[$col]) { 
-					push @breaks, $breakStart;
+			if ($strengthRef->[$col] != 0) {
+				if ($strengthRef->[$breakStart-1]>$strengthRef->[$col]) { 
+					push @$breakRef, $breakStart;
 				} else {
-					push @breaks, $col;
+					push @$breakRef, $col;
 				}
 				$breakStart = 0;
 			}
-		} elsif ($strength[$col] == 0 ) {
+		} elsif ($strengthRef->[$col] == 0 ) {
 			$breakStart = $col;
-			$softStart = 0;
-		} elsif ($softStart) {
-			if ($strength[$col] >= 3) {
-				push @breaks, $col;
+			$monoStart = 0;
+		} elsif ($monoStart) {
+			if ($monoDirection>0) {
+				if ($strengthRef->[$col] >= $monoValue) {
+					$monoValue = $strengthRef->[$col];
+				} else {
+					if ($strengthRef->[$col-1] != $strengthRef->[$monoStart] &&
+						$col-$monoStart >=2) {
+						push @$breakRef, $col;
+						$monoStart = 0;
+					}
+				}
+			} else {
+				if ($strengthRef->[$col] <= $monoValue) {
+					$monoValue = $strengthRef->[$col];
+				} else {
+					if ($strengthRef->[$col-1] != $strengthRef->[$monoStart] &&
+						$col-$monoStart >=2) {
+						push @$breakRef, $col;
+						$monoStart = 0;
+					}
+				}
 			}
-		} elsif ($strength[$col] == 1) {
-			$softStart = $col;
+		} else  {
+			$monoStart = $col;
+			$monoValue = $strengthRef->[$col];
+			$monoDirection = $strengthRef->[$col] == 3 ? -1 : 1;
 		}
 	}
-
-	return \@breaks, \@lineCache;
 }
 
 sub printPreviewSplitData {
@@ -349,7 +379,7 @@ sub printSplitData {
 		$b1=$b2;
 	}
 	if ($b1 < length($line)) {
-		print substr($line, $b1);
+		print trim(substr($line, $b1));
 	}
 	print "\n";
 }
