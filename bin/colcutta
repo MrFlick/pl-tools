@@ -4,9 +4,16 @@
 
 colcutta  - a utility for converting fixed width data files to tab-delimited files
 
-=head1 DESCRIPTION
+=head1 SYNOPSIS
 
 colcutta [--breaks breakpoints] [--preview] [--peek lines] file
+
+=head1 DESCRIPTION
+
+This program will split fixed-width files into a tab-delimited format. By 
+default it will attempt to guess where column breaks are located, but you 
+can specify break locations with C<--breaks>. For help in determining
+break locations, use the C<--preview> mode.
 
 =head2 OPTIONS
 
@@ -124,28 +131,34 @@ my $preview = 0;
 my $previewLength = 10;
 my $peekLength = 50;
 my $breakString = "";
+my $debug = 0;
 my ($help, $man) = (0,0);
 
 GetOptions("preview" => \$preview,
 	"previewLength=i" => \$previewLength,
 	"peek=i" => \$peekLength,
 	"breaks=s" => \$breakString,
+	"debug" => \$debug,
 	"help|?" => \$help,
 	"man" => \$man
 );
 
 pod2usage(-verbose => 1) if $help;
 pod2usage(-exitstatus => 0, -verbose => 2) if $man;
-pod2usage() if @ARGV==0;
 
-
-foreach my $file (@ARGV) {
-	if (open(FIN, "< $file")) {
-		processFile(*FIN);
-	} else {
-		print STDERR "Cannot open file $file ($!)\n";
+if (@ARGV) {
+	foreach my $file (@ARGV) {
+		if (open(FIN, "< $file")) {
+			processFile(*FIN);
+		} else {
+			print STDERR "Cannot open file $file ($!)\n";
+		}
+		close(FIN);
 	}
-	close(FIN);
+} elsif (!(-t STDIN)) {
+	processFile(*STDIN);
+} else {
+	pod2usage();
 }
 
 
@@ -256,23 +269,40 @@ sub sniffForBreaks {
 	my @lineCache=();
 
 	my @data;
+	my @rightEdges;
+	my @leftEdges;
 	
 	fillCache(*FIN, \@lineCache, $peekLines);
 
 	foreach (@lineCache) {
 		my @cols = unpack("C*", $_);
-		for(my $i=0; $i<@cols; $i++) {
+		for(my $i=0; $i<@cols-1; $i++) {
 			if ($cols[$i]!=32) {
 				$data[$i]++;
 			}
+			if ($cols[$i]==32 && $cols[$i+1]!=32) {
+				$rightEdges[$i]++;
+			}
+			if ($cols[$i]!=32 && $cols[$i+1]==32) {
+				$leftEdges[$i]++;	
+			}
 		}
+		$data[$#cols]++ if  $cols[$#cols]!=32;
 	}
 
 	my ($dmin, $dmax) = (scalar(@lineCache),0);
+	my ($emin, $emax) = (scalar(@lineCache),0);
 	for (my $i=0; $i<@data; $i++) {
 		$data[$i] = 0 if not $data[$i];
 		$dmax = $data[$i] if $data[$i]>$dmax;
 		$dmin = $data[$i] if $data[$i]<$dmin;
+
+		$leftEdges[$i] = 0 if not $leftEdges[$i];
+		$emax = $leftEdges[$i] if $leftEdges[$i]>$emax;
+		$emin = $leftEdges[$i] if $leftEdges[$i]<$emin;
+		$rightEdges[$i] = 0 if not $rightEdges[$i];
+		$emax = $rightEdges[$i] if $rightEdges[$i]>$emax;
+		$emin = $rightEdges[$i] if $leftEdges[$i]<$emin;
 	}
 	#print "data $dmin-$dmax\n";
 
@@ -281,12 +311,26 @@ sub sniffForBreaks {
 		elsif ($_<=($dmax+3*$dmin)/4) {1} 
 		else {2}
 		}  @data;
+	my @leftSig = map{ if ($_>=(3*$emax+$emin)/4) {3}
+		elsif ($_==$emin) {0}
+		elsif ($_<=($emax+3*$emin)/4) {1} 
+		else {2}
+		}  @leftEdges;
+	my @rightSig = map{ if ($_>=(3*$emax+$emin)/4) {3}
+		elsif ($_==$emin) {0}
+		elsif ($_<=($emax+3*$emin)/4) {1} 
+		else {2}
+		}  @rightEdges;
 
 	findBreaksFromStrength(\@strength, \@breaks);	
 
-	print "\n";
-	#print joinWithBreaks(\@data, \@breaks), "\n";
-	print joinWithBreaks(\@strength, \@breaks), "\n";
+	if ($debug) {
+		print "\n";
+		print joinWithBreaks(\@strength, \@breaks), ":S\n";
+		print joinWithBreaks(\@leftSig, \@breaks),  ":L\n";
+		print joinWithBreaks(\@rightSig, \@breaks), ":R\n";
+		print "\n";
+	}
 	
 	return \@breaks, \@lineCache;
 }
