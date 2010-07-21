@@ -182,102 +182,123 @@ GetOptions("sep=s" => \$sep,
 
 pod2usage(-verbose => 1) if $help;
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
-pod2usage() if @ARGV==0;
 
 my ($matchCount, $returned, $printed) = (0, 0, 0);
-my @matchCache;
+my (@matchCache, @selcolheads);
 my ($lineCheckRef, $maxLine) = parseLineRange($lines);
 my ($totalLineCount, $totalFileCount) = (0,0);
 
-if (@ARGV>0) {
-    my @selcolheads;
+if (@ARGV) {
     foreach my $file (@ARGV) {
-        if (open(FIN, "< $file")) {
-			$totalFileCount ++;
-            my $header = <FIN>;
-            while ($header =~ m/^$commentMarker/) {$header = <FIN>};
-            if ($sep eq "?") {
-                my $cnttab = ($header =~ tr/\t/\t/);
-                my $cntcomma = ($header =~ tr/,/,/);
-                if ($cnttab>0) {
-                    $sep="\t";
-                } elsif ($cntcomma>0) {
-                    $sep=",";
-                } else {
-                    $sep=" ";
-                }
-            }
-            my @colheads;
-            if ($sep ne " ") {
-                @colheads = split($sep, $header);
-            } else {
-                @colheads = split(" ", $header);
-            }
-            chomp(@colheads);
-			collapseQuotes(\@colheads) if $sep eq ",";
+		if (open(FIN, "< $file")) {
+			my $alldone = processFile(*FIN, $file);
+			last if $alldone;
+		} else {
+			print STDERR "Cannot open file $file ($!)\n";
+		}
+		close(FIN);
+	}
+	clearCacheAndFinalize(); 
+} elsif (!(-t STDIN)) {
+	processFile(*STDIN, "stdin");
+	clearCacheAndFinalize(); 
+} else {
+	pod2usage();
+}
 
-			my ($qr, $sr, $isOk);
-            ($qr, $isOk) = parseQuery($query, \@colheads);
-			die("File: $file\nstopped") if !$isOk;
-			($sr, $isOk) = parseSelect($select, \@colheads);
-			die("File: $file\nstopped") if !$isOk;
+sub processFile {
+	local *FIN = shift;
+	my $file = shift;
 
-			@selcolheads = &$sr(@colheads);
-            while(<FIN>) {
-				next if /^$commentMarker/;
-                $totalLineCount ++;
-                my @c;
-                if ($sep eq ",") {
-					@c = split($sep, $_);
-					collapseQuotes(\@c);
-				} elsif ($sep ne " ") {
-                    @c = split($sep, $_, @colheads);
-                } else {
-                    @c = split(" ", $_, @colheads);
-                }
-                chomp @c;
-                if( &$qr(@c)) {
-                    @c = &$sr(@c);
-                    $matchCount++;
-                    if (&$lineCheckRef($matchCount)) {
-						$returned++;
-						if (!$randomSubset) {
-							if ($outformat eq "L") {
-								printLine(\@selcolheads) if $returned==1 and $includeHeaderOutput;
-								printLine(\@c);
-								$printed++;
-							} elsif ($outformat eq "C") {
-								if ($printed > 0) {print "-"x25, "\n";}
-								printCard(\@c, \@selcolheads);
-								$printed++;
-							} elsif ($returned==2 && $outformat eq "D") {
-								printLine(\@selcolheads) if $includeHeaderOutput;
-								printLine(pop @matchCache);
-								printLine(\@c);
-								$printed += 2;
-								$outformat="L";
-							} elsif ($returned==1 && $outformat eq "D") {
-								push @matchCache, [@c];
-							}
-						} else {
-							#random subset
-							if ($returned <= $randomSubset) {
-								push @matchCache, [@c];
-							} elsif (rand() < $randomSubset/$returned) {
-								my $rep = int(rand(@matchCache));
-								$matchCache[$rep] = [@c];
-							}
-						}
-                        last if ($firstOnly and !$randomSubset) or ($maxLine>0 and $matchCount>=$maxLine);
-                    }
-                }
-            }
-            close(FIN);
-            last if ($returned and $firstOnly and !$randomSubset) or ($maxLine>0 and $matchCount>=$maxLine);
-        } else {
-            print STDERR "Cannot open $file: $!\n";
-        }
-    }
+	$totalFileCount ++;
+	my $header = <FIN>;
+	while ($header =~ m/^$commentMarker/) {$header = <FIN>};
+	if ($sep eq "?") {
+		my $cnttab = ($header =~ tr/\t/\t/);
+		my $cntcomma = ($header =~ tr/,/,/);
+		if ($cnttab>0) {
+			$sep="\t";
+		} elsif ($cntcomma>0) {
+			$sep=",";
+		} else {
+			$sep=" ";
+		}
+	}
+	my @colheads;
+	if ($sep ne " ") {
+		@colheads = split($sep, $header);
+	} else {
+		@colheads = split(" ", $header);
+	}
+	chomp(@colheads);
+	collapseQuotes(\@colheads) if $sep eq ",";
+
+	my ($qr, $sr, $isOk);
+	($qr, $isOk) = parseQuery($query, \@colheads);
+	die("File: $file\nstopped") if !$isOk;
+	($sr, $isOk) = parseSelect($select, \@colheads);
+	die("File: $file\nstopped") if !$isOk;
+
+	@selcolheads = &$sr(@colheads);
+	while(<FIN>) {
+		next if /^$commentMarker/;
+		$totalLineCount ++;
+		my @c;
+		if ($sep eq ",") {
+			@c = split($sep, $_);
+			collapseQuotes(\@c);
+		} elsif ($sep ne " ") {
+			@c = split($sep, $_, @colheads);
+		} else {
+			@c = split(" ", $_, @colheads);
+		}
+		chomp @c;
+		if( &$qr(@c)) {
+			@c = &$sr(@c);
+			$matchCount++;
+			if (&$lineCheckRef($matchCount)) {
+				$returned++;
+				if (!$randomSubset) {
+					if ($outformat eq "L") {
+						printLine(\@selcolheads) if $returned==1 and $includeHeaderOutput;
+						printLine(\@c);
+						$printed++;
+					} elsif ($outformat eq "C") {
+						if ($printed > 0) {print "-"x25, "\n";}
+						printCard(\@c, \@selcolheads);
+						$printed++;
+					} elsif ($returned==2 && $outformat eq "D") {
+						printLine(\@selcolheads) if $includeHeaderOutput;
+						printLine(pop @matchCache);
+						printLine(\@c);
+						$printed += 2;
+						$outformat="L";
+					} elsif ($returned==1 && $outformat eq "D") {
+						push @matchCache, [@c];
+					}
+				} else {
+					#random subset
+					if ($returned <= $randomSubset) {
+						push @matchCache, [@c];
+					} elsif (rand() < $randomSubset/$returned) {
+						my $rep = int(rand(@matchCache));
+						$matchCache[$rep] = [@c];
+					}
+				}
+				last if ($firstOnly and !$randomSubset) or ($maxLine>0 and $matchCount>=$maxLine);
+			}
+		}
+	}
+	close(FIN);
+	if (($returned and $firstOnly and !$randomSubset) 
+		or ($maxLine>0 and $matchCount>=$maxLine)) {
+		return 1;
+	} else {
+		return 0;
+	};
+}
+
+sub clearCacheAndFinalize {
 	if (@matchCache>0) {
 		if (@matchCache==1 && $outformat eq "D") {
 			printCard($matchCache[0], \@selcolheads);
@@ -297,9 +318,7 @@ if (@ARGV>0) {
 	if ($returned==0) {
 		print STDERR "No matching lines found ($totalLineCount line(s) read in $totalFileCount file(s))\n";
 	}
-} else {
-    print STDERR "No files specified.\n";
-    print STDERR "Try $0 *.txt.\n";
+	
 }
 
 sub printCard {
