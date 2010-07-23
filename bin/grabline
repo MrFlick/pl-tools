@@ -6,8 +6,8 @@ grabline - a utility for displaying choosen records from a delimited text file
 
 =head1 SYNOPSIS
 
-grabline [--where filter] [--select columns] [--lines datalines] 
-[--first] [--random number] [--sep] [--format] 
+grabline [--first] [--where filter] [--select columns] [--lines datalines] 
+[--rename columns] [--random number] [--sep] [--format] 
 [--help] [--man] file ...
 
 =head1 DESCRIPTION
@@ -15,8 +15,10 @@ grabline [--where filter] [--select columns] [--lines datalines]
 grabline will allow you to extract and view lines from a text file.
 grabline will read the column headers in the file so you can search
 using column names using the C<--where> option (ie C<--where gender=M>).
-Alternatively, you can also specify which data lines you want returned with
-the C<--lines> option. If only one record matches your filter,
+You can also choose lines to return by line number with C<--lines>
+or choose a random sample with C<--random>. You can select a subset
+of columns with C<--select> and rename them with C<--rename>.
+If only one record matches your filter,
 by default the record is displayed with each column value and its header
 on a separate line so can you easily see what's in each column.
 
@@ -24,37 +26,59 @@ on a separate line so can you easily see what's in each column.
 
 =over 4
 
+=item B<--first>
+
+If you set this flag, the program will stop searching after it finds
+the first matching record. This is a good way to quickly see what is
+in a file.
+
 =item B<--where>
 
-You must speciy your query
-in the form C<field=value>. Currently only this simple filter
-is supported. The field names come from the header line of the file.
+Filter which rows are returned by specifying C<column=value>. 
+Currently only this simple filter is supported. The column names 
+come from the header line of the file.
 
 =item B<--select>
 
-A comma seperated names of the fields you wish to view from the
-file. If you omit this parameter, by default all fields
-are returned. Fields are returned in the order you specify
-them (allow re-ordering of the columns).
+A comma seperated list of the columns you wish to view from the
+file. Columns are returned in the order you specify
+them (allow re-ordering of the columns). If you omit this parameter, 
+all columns are returned. 
 
 =item B<--lines>
 
 You may request certain lines to be returned from the file. The 
 first row after the header is row 1. You may specify a range with
 C<:> and you may select multiple, non-consecutive by separating them
-with C<,>. Thus 1:3,8:10 will select rows 1,2,3,8,9, and 10.
+with C<,>. Thus 1:3,8:10 will select rows 1,2,3,8,9, and 10. If
+used with C<--select>, only matching lines are counted.
 
-=item B<--first>
+=item B<--rename>
 
-If you set this flag, the program will stop searching after it finds
-the first matching record. If used without C<--where> or C<--lines>
-then grabline will simply return the first record in the file.
+Allows for renaming the output columns. Specify a list of
+columns separated by commas. If you do not have a select
+statement, the number of names should match the number of
+columns in the table; otherwise, the number of new names
+should match the number of columns in the select list. You can
+alternatively specify a list of columns to rename in the form
+C<OldName=NewName> (separated by commas if necessary). 
+
+=item B<--renameearly>
+
+By default, renaming occurs after processing C<--select> and C<--where>.
+Add this parameter to the command so renameing happens earlier
+allowing you to use the new names in C<--select> and C<--where>.
 
 =item B<--random>
 
 This option allows you select a random subset of the matching lines
 from the input file. So specifying C<--random 5 --lines 1:50> will
 randomly select 5 lines from the first 50 lines from the file.
+
+=item B<--comment>
+
+Specify the character which indicates the rest of the line is
+a comment. By default this is "#".
 
 =item B<--sep>
 
@@ -75,6 +99,11 @@ a tablular format with fields separated by tabs. The default is
 C<D> which will print in card format if one record is found; 
 otherwise if more records are found it will use the line format.
 
+=item B<--nooutheader>
+
+Use this option to suppress the column names from being written
+to the output when using "line" format.
+
 =item B<--help>
 
 Prints a brief help message and exits.
@@ -87,9 +116,6 @@ Prints the manual page and exits.
 
 =head2 NOTES
 
-grabline will skip any lines at the beginning of the file that begin with "#".
-You can change the comment character with the C<--comment> parameter.
-
 Field names are case sensitive and must match exactly.
 
 When using the default format option, grabline will wait until a second matching
@@ -97,12 +123,20 @@ record is found or the end of the file is reached before printing any
 output. If you are searching a large file and are only expecting to find
 a single record, you probably want to set the C<--first> option. 
 
-You can read data from the the standard input/pipe by specifying
-C<-> as the filename
+The C<--random> option uses a reservoir sampling technique to choose lines
+with a single pass through the data. This requires the entire file to be read.
+If you want some random lines from the top of a very large file, try something
+like C<--random 4 --lines 1:500>.
+
+You can also specify multiple files to process; the results are combined into one
+output file. All the files must have the same header names (though not
+necessarily in the same order). Options such as C<--lines> and C<--random> treat
+multiple files are if they were a single file cat-ed together.
 
 =head1 EXAMPLES
 
 Assume we have the file pheno.txt:
+
     #created 8/18/2008
     sampleID,gender,age
     00C01244,M,34
@@ -110,35 +144,44 @@ Assume we have the file pheno.txt:
     99C18124,F,28
     
 Running
+
     grabline --where sampleID=00C01244 pheno.txt
     
 will return:
+
     sampleID: 00C01244
     gender: M
     age: 34
 
 and running
+
     grabline --first pheno.txt
 or
+
     grabline --lines 1 pheno.txt
 
 will return the same thing in this case.
     
 Furthermore, running
+
     grabline --where gender=M --select age,gender pheno.txt
     
 will return
+
     age   gender
     34    M
     45    M
 
-Fianlly, you can also do something like
-    cat pheno.txt | tr "," "@" | grabline --where gender=F --sep="@" -
+To grab a random male, rename the gender column to sex, and 
+leave the results in table form, you can run
 
-which returns
-    sampleID: 99C18124
-    gender: F
-    age: 28
+	grabline --where gender=M --random 1 --rename gender=sex --format L pheno.txt
+
+which half the time will return
+
+	sampleID	sex	age
+	04C02237	M	45
+
 
 =head1 AUTHOR
 
@@ -159,6 +202,7 @@ my $sep = "?";
 my $select = "";
 my $query = "";
 my $rename = "";
+my $renameEarly = 0;
 my $lines = "";
 my $firstOnly = "";
 my $randomSubset = 0;
@@ -171,6 +215,7 @@ GetOptions("sep=s" => \$sep,
     "where=s" => \$query,
     "select=s" => \$select,
 	"rename=s" => \$rename,
+	"renameearly!" => \$renameEarly,
     "lines=s" => \$lines,
     "format=s" => \$outformat,
     "first" => \$firstOnly,
@@ -234,9 +279,14 @@ sub processFile {
 	collapseQuotes(\@colheads) if $sep eq ",";
 
 	my ($qr, $sr, $isOk);
+	$isOk = 1;
+	$isOk = renameColumns($rename, \@colheads, "") if $rename && $renameEarly;
+	die("File: $file\nstopped") if !$isOk;
 	($qr, $isOk) = parseQuery($query, \@colheads);
 	die("File: $file\nstopped") if !$isOk;
 	($sr, $isOk) = parseSelect($select, \@colheads);
+	die("File: $file\nstopped") if !$isOk;
+	$isOk = renameColumns($rename, \@colheads, $select) if $rename && !$renameEarly;
 	die("File: $file\nstopped") if !$isOk;
 
 	@selcolheads = &$sr(@colheads);
@@ -389,10 +439,22 @@ sub parseQuery {
 sub parseSelect {
     my $q = shift;
     my $cr = shift;
+	my $quiet = shift || 0;
 	my $isOk = 1;
     if (!$q) {
         return sub {return @_;}, $isOk;
     }
+	my $selColsRef;
+	($selColsRef, $isOk)= findSelectCols($q, $cr, $quiet);
+    return sub {return @_[@$selColsRef]}, $isOk;
+}
+
+sub findSelectCols {
+	my $q = shift;
+	my $cr = shift;
+	my $quiet = shift || 0;
+	my $isOk = 1;
+
 	my @selCols;
     my %ci = map{ $cr->[$_]=> $_} (0..(scalar(@$cr)-1));
     foreach(split(",", $q)) {
@@ -400,11 +462,73 @@ sub parseSelect {
 			push(@selCols, $ci{$_});
 		} else {
 			$isOk = 0;
-            print STDERR "Field [$_] not found\n";
+            print STDERR "Field [$_] not found\n" if !$quiet;
 		}
 	}
-    printFieldNames($cr, "--select") if !$isOk;
-    return sub {return @_[@selCols]}, $isOk;
+    printFieldNames($cr, "--select") if !$isOk && !$quiet;
+    return \@selCols, $isOk;
+}
+
+
+sub renameColumns {
+	my $rename = shift;
+	my $colRef = shift;
+	my $select = shift;
+	my $quiet = shift || 0;
+	my $isOk=1;
+
+	my @renCols = split(",", $rename);
+	if ($rename =~ /=/) {
+		foreach (@renCols) {
+			my $found = 0;
+         	my ($old, $new) = m/(.+)\s*=\s*(.+)/;
+			for(my $i=0; $i<@$colRef; $i++) {
+				if ($colRef->[$i] eq $old) {
+					$colRef->[$i] = $new;
+					$found = 1;
+					last;
+				}
+			}
+			if (!$found) {
+            	print STDERR "Field [$old] not found\n" if !$quiet;
+				$isOk = 0;
+			}
+		}
+    	printFieldNames($colRef, "--rename") if !$isOk && !$quiet;
+	} else {
+		if ($select) {
+			my ($selColRef, $ok) = findSelectCols($select, $colRef, 1);
+			if (scalar(@renCols) != scalar(@$selColRef)) {
+				print countMismatchError("rename columns", "selected columns",
+					\@renCols, $selColRef) if !$quiet;
+				$isOk = 0;
+				return $isOk;
+			}
+			for( my $i=0; $i<@$selColRef; $i++) {
+				$colRef->[$selColRef->[$i]] = $renCols[$i];
+			}
+		} else {
+			if (scalar(@renCols) != scalar(@$colRef)) {
+				print countMismatchError("rename columns", "header columns",
+					\@renCols, $colRef) if !$quiet;
+				$isOk = 0;
+				return $isOk;
+			}
+			for(my $i=0; $i<@renCols; $i++) {
+				$colRef->[$i] = $renCols[$i];
+			}
+		}
+	}
+	return $isOk;
+}
+
+sub countMismatchError {
+	my $ar1type = shift;
+	my $ar2type = shift;
+	my $ar1 = shift;
+	my $ar2 = shift;
+	return "Number of $ar1type (", scalar(@$ar1), 
+		") does not match number of $ar2type (", scalar(@$ar2), ")\n"; 
 }
 
 sub printFieldNames {
