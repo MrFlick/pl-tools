@@ -7,7 +7,7 @@ grabline - a utility for displaying choosen records from a delimited text file
 =head1 SYNOPSIS
 
 grabline [--first] [--where filter] [--select columns] [--lines datalines] 
-[--rename columns] [--random number] [--sep] [--format] 
+[--rename columns] [--random number] [--sep] [--comment] [--format] 
 [--help] [--man] file ...
 
 =head1 DESCRIPTION
@@ -43,7 +43,8 @@ come from the header line of the file.
 A comma seperated list of the columns you wish to view from the
 file. Columns are returned in the order you specify
 them (allow re-ordering of the columns). If you omit this parameter, 
-all columns are returned. 
+all columns are returned. You may also specify a range of columns
+using the syntax C<start:end>.
 
 =item B<--lines>
 
@@ -461,8 +462,34 @@ sub findSelectCols {
 		if (exists $ci{$_}) {
 			push(@selCols, $ci{$_});
 		} else {
-			$isOk = 0;
-            print STDERR "Field [$_] not found\n" if !$quiet;
+			if (/:/) {
+				my @range = split(":");
+				if (@range == 2) {
+					if (exists $ci{$range[0]} ) {
+						if (exists $ci{$range[1]} ) {
+							my $cid = $ci{$range[0]};
+							my $move = -1*($ci{$range[0]} <=> $ci{$range[1]});
+							while(1) {
+								push(@selCols, $cid);
+								last if $cid==$ci{$range[1]};
+								$cid += $move;
+							};
+						} else {
+							$isOk=0;
+							print STDERR "Error in range [$_], field $range[1] not found\n" if !$quiet;
+						}
+					} else {
+						$isOk =0;
+						print STDERR "Error in range [$_], field $range[0] not found\n" if !$quiet;
+					}
+				} else {
+					$isOk = 0;
+					print STDERR "Error in range [$_], expecting start:end\n" if !$quiet;
+				}
+			} else {
+				$isOk = 0;
+            	print STDERR "Field [$_] not found\n" if !$quiet;
+			}
 		}
 	}
     printFieldNames($cr, "--select") if !$isOk && !$quiet;
