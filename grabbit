@@ -392,31 +392,38 @@ sub printLine {
 
 sub parseLineRange {
     my $rng = shift;
-	if (!$rng) {
-		return (sub {return 1}, 0);
-	}
-	my @lineblocks;
-    foreach my $grp (split(",", $rng)) {
-		if ($grp !~ m/:/) {
-			push(@lineblocks, [int($grp), int($grp)]);
-		} else {
-			my @ss = split(":", $grp); 
-			push(@lineblocks, [int($ss[0]), int($ss[1])]);
-		}
+    if (!$rng) {
+        return (sub {return 1}, 0);
     }
-	@lineblocks = sort {$a->[0] cmp $b->[0]} @lineblocks;
+    my @lineblocks;
+    foreach my $grp (split(",", $rng)) {
+        if ($grp !~ m/:/) {
+            push(@lineblocks, [int($grp), int($grp)]);
+        } else {
+            my @ss = split(":", $grp);
+            if ($ss[1]) {
+                #in the form "start:stop"
+                push(@lineblocks, [int($ss[0]), int($ss[1])]);
+            } else {
+                #in the form "start:"  (go to end);
+                push(@lineblocks, [int($ss[0]), 0]);
+            }
+        }
+    }
+    @lineblocks = sort {$a->[0] cmp $b->[0]} @lineblocks;
     return (sub {
-		my $line = shift;
-		foreach my $r (@lineblocks) {
-			last if $line < $r->[0];
-			if($line >=$r->[0] and $line <=$r->[1]) {
-				return 1;
-				last;
-			};
-		}
-		return 0;
-	}, $lineblocks[$#lineblocks]->[1]);
+        my $line = shift;
+        foreach my $r (@lineblocks) {
+            last if $line < $r->[0];
+            if($line >= $r->[0] and ($r->[1] == 0 or $line <= $r->[1])) {
+                return 1;
+                last;
+            };
+        }
+        return 0;
+    }, $lineblocks[$#lineblocks]->[1]);
 }
+
 
 sub parseQuery {
     my $q = shift;
