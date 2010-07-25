@@ -283,10 +283,15 @@ sub processFile {
 	$isOk = 1;
 	$isOk = renameColumns($rename, \@colheads, "") if $rename && $renameEarly;
 	die("File: $file\nstopped") if !$isOk;
+
 	($qr, $isOk) = parseQuery($query, \@colheads);
 	die("File: $file\nstopped") if !$isOk;
+
 	($sr, $isOk) = parseSelect($select, \@colheads);
+	#make sure we read same columns in all subsequent files
+	$select = join(",", &$sr(@colheads));
 	die("File: $file\nstopped") if !$isOk;
+
 	$isOk = renameColumns($rename, \@colheads, $select) if $rename && !$renameEarly;
 	die("File: $file\nstopped") if !$isOk;
 
