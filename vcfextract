@@ -1,0 +1,207 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+vcfExtract - turns data from a VCF file into a rectangular, tab-delimited file
+
+=head1 SYNOPSIS
+
+vcfExtract file
+
+=cut
+
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use Pod::Usage;
+
+#my $standardFields = "CHROM,POS,ID,REF,ALT,QUAL,FILTER";
+#my $infoFields = "AB,MQ0,DP";
+#my $genoFields = "GT,DP,GL,GQ";
+my $standardFields = "";
+my $infoFields = "";
+my $genoFields = "";
+my $sampleNames = "";
+my $tall = 0;
+my $ifMissing = "";
+my $ifFlagged = "+";
+my ($help, $man) = (0,0);
+
+GetOptions("info=s" => \$infoFields,
+	"cols=s" => \$standardFields,
+	"geno=s" => \$genoFields,
+	"samples=s" => \$sampleNames,
+	"tall" => \$tall,
+	"missing=s" => \$ifMissing,
+	"flag=s" => \$ifFlagged,
+	"help|?" => \$help,
+	"man" => \$man);
+
+pod2usage(-verbose => 1) if $help;
+pod2usage(-exitstatus => 0, -verbose=>2) if $man;
+#pod2usage() if @ARGV==0;
+
+my @standardFields = split(",", $standardFields);
+my @infoFields = split(",", $infoFields);
+my @genoFields = split(",", $genoFields);
+my @sampleNames = split(",", $sampleNames);
+
+my $file = shift @ARGV;
+my $header="";
+my %colIndexes;
+my @standardIndexes;
+my $lineNumber=0;
+
+open(FIN, $file) or die("cannot open file $file ($!), stopped");
+processFile(*FIN);
+close(FIN);
+
+sub processFile {
+	local *FIN = shift;
+	while (<FIN>) {
+		chomp;
+		next if /^##/;
+		if (!$header) {
+			$header = substr($_, 1); #take off leading #
+			readHeader($header);
+			writeHeader();
+			next;
+		}
+		$lineNumber++;
+		my @cols = split("\t");
+		if ($tall) {
+			writeTallLine(\@cols);
+		} else {
+			writeWideLine(\@cols);
+		}
+	}
+}
+
+sub readHeader {
+	my $header = shift;
+
+	my @colHeaders = split("\t", $header);
+	%colIndexes = map{ $colHeaders[$_]=> $_} (0..(scalar(@colHeaders)-1));
+	my $isOk=1;
+	foreach my $std (@standardFields) {
+		if (exists($colIndexes{$std})) {
+			push @standardIndexes, $colIndexes{$std};
+		} else {
+			print STDERR "column $std not found in file\n";
+			$isOk=0;
+		}
+	}
+	die("some columns not found, stopped") if !$isOk;
+	foreach my $sample (@sampleNames) {
+		if (!exists($colIndexes{$sample})) {
+			print STDERR "sample name $sample not found in file\n";
+			$isOk=0;
+		}
+	}
+	die("some samples not found, stopped") if !$isOk;
+}
+
+sub writeHeader {
+	print "SAMPLE\t" if $tall;
+	print join("\t", @standardFields), "\t";
+	print join("\t", @infoFields), "\t";
+    print join("\t", @genoFields), "\n";
+}
+
+sub writeTallLine {
+	my $colRef = shift;
+	foreach my $sample(@sampleNames) {
+		print $sample;
+		print "\t", join("\t", @$colRef[@standardIndexes]) if @standardIndexes;
+		print "\t", join("\t",extractInfo($colRef->[$colIndexes{"INFO"}], \@infoFields)) if @infoFields;
+		print "\t", join("\t",extractGeno($colRef->[$colIndexes{"FORMAT"}], 
+			$colRef->[$colIndexes{$sample}], \@genoFields)) if @genoFields;
+		print "\n";
+	}
+}
+
+sub writeWideLine {
+	my $colRef = shift;
+	my $needTab = 0;
+	if (@standardIndexes) {
+		print join("\t", @$colRef[@standardIndexes]);
+		$needTab = 1;
+	}
+	if (@infoFields) {
+		print "\t" if $needTab;
+		print join("\t",extractInfo($colRef->[$colIndexes{"INFO"}], \@infoFields));
+		$needTab = 1;
+	}
+	foreach my $sample (@sampleNames) {
+		print "\t" if $needTab;
+		print join("\t",extractGeno($colRef->[$colIndexes{"FORMAT"}], 
+			$colRef->[$colIndexes{$sample}], \@genoFields));
+		$needTab = 1;
+	}
+	print "\n";
+}
+
+
+sub extractInfo {
+    my $info = shift;
+    my $fieldRef = shift;
+
+	my $infoDictRef = createInfoDict($info);
+    my @cols;
+    foreach (@$fieldRef) {
+        if (exists $infoDictRef->{$_}) {
+            push @cols, $infoDictRef->{$_};
+        } else {
+            push @cols, $ifMissing;
+        }
+    }
+    return @cols;
+}
+
+sub createInfoDict {
+	my $info = shift;
+
+    my @infos = split(";", $info);
+    my %infos;
+    foreach(@infos) {
+        if (/=/) {
+            my ($fld, $val) = m/(.+)\s*=\s*(.+)/;
+            $infos{$fld} = $val;
+        } else {
+            $infos{$_} = $ifFlagged;
+        }
+    }
+	return \%infos;
+}
+
+sub extractGeno {
+    my $format = shift;
+    my $geno = shift;
+    my $fieldRef = shift;
+
+    my $genoDictRef = createGenoDict($format, $geno);  
+    my @cols;
+    foreach (@$fieldRef) {
+		if (exists $genoDictRef->{$_}) {
+			push @cols, $genoDictRef->{$_};
+		} else {
+			push @cols, $ifMissing;
+		}
+    }
+    return @cols;
+}
+
+sub createGenoDict {
+	my $format = shift;
+	my $geno = shift;
+
+    my @formats = split(":", $format);
+    my @genos = split(":", $geno);
+    my %genos;
+    for(my $i = 0; $i < @formats; $i++) {
+        $genos{$formats[$i]} = $genos[$i];
+    }  
+	return \%genos;
+}
