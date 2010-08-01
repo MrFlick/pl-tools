@@ -100,6 +100,12 @@ a tablular format with fields separated by tabs. The default is
 C<D> which will print in card format if one record is found; 
 otherwise if more records are found it will use the line format.
 
+=item B<--noheader>
+
+Use this option if your data file does not have a header line. 
+The columns will be automatically named 1,2,3, etc. You can 
+give them better names with C<--rename>.  
+
 =item B<--nooutheader>
 
 Use this option to suppress the column names from being written
@@ -207,6 +213,7 @@ my $renameEarly = 0;
 my $lines = "";
 my $firstOnly = "";
 my $randomSubset = 0;
+my $hasInputHeader = 1;
 my $includeHeaderOutput = 1;
 my $outformat = "D";
 my ($help, $man)=(0,0);
@@ -221,6 +228,7 @@ GetOptions("sep=s" => \$sep,
     "format=s" => \$outformat,
     "first" => \$firstOnly,
 	"random=i" => \$randomSubset,
+	"header!" => \$hasInputHeader,
 	"outheader!" => \$includeHeaderOutput,
 	"comment=s" => \$commentMarker,
     "help|?" => \$help, 
@@ -257,27 +265,32 @@ sub processFile {
 	my $file = shift;
 
 	$totalFileCount ++;
-	my $header = <FIN>;
-	while ($header =~ m/^$commentMarker/) {$header = <FIN>};
+	my $firstLine = <FIN>;
+	my @colheads;
+	while ($firstLine =~ m/^$commentMarker/) {$firstLine = <FIN>};
 	if ($sep eq "?") {
-		my $cnttab = ($header =~ tr/\t/\t/);
-		my $cntcomma = ($header =~ tr/,/,/);
+		my $cnttab = ($firstLine =~ tr/\t/\t/);
+		my $cntcomma = ($firstLine =~ tr/,/,/);
 		if ($cnttab>0) {
 			$sep="\t";
-		} elsif ($cntcomma>0) {
+	} elsif ($cntcomma>0) {
 			$sep=",";
 		} else {
 			$sep=" ";
 		}
 	}
-	my @colheads;
 	if ($sep ne " ") {
-		@colheads = split($sep, $header);
+		@colheads = split($sep, $firstLine);
 	} else {
-		@colheads = split(" ", $header);
+		@colheads = split(" ", $firstLine);
 	}
 	chomp(@colheads);
 	collapseQuotes(\@colheads) if $sep eq ",";
+	if ($hasInputHeader) {
+		$firstLine = "";
+	} else {
+		@colheads = map($_,1..scalar(@colheads));
+	}
 
 	my ($qr, $sr, $isOk);
 	$isOk = 1;
@@ -296,17 +309,18 @@ sub processFile {
 	die("File: $file\nstopped") if !$isOk;
 
 	@selcolheads = &$sr(@colheads);
-	while(<FIN>) {
-		next if /^$commentMarker/;
+	my $line;
+	while((($line = $firstLine) and ($firstLine="")eq"") or defined($line = <FIN>)) {
+		next if $line =~ m/^$commentMarker/;
 		$totalLineCount ++;
 		my @c;
 		if ($sep eq ",") {
-			@c = split($sep, $_);
+			@c = split($sep, $line);
 			collapseQuotes(\@c);
 		} elsif ($sep ne " ") {
-			@c = split($sep, $_, @colheads);
+			@c = split($sep, $line, @colheads);
 		} else {
-			@c = split(" ", $_, @colheads);
+			@c = split(" ", $line, @colheads);
 		}
 		chomp @c;
 		if( &$qr(@c)) {
