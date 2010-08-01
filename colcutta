@@ -131,6 +131,7 @@ my $preview = 0;
 my $previewLength = 10;
 my $peekLength = 50;
 my $breakString = "";
+my $breakTol = .95;
 my $debug = 0;
 my ($help, $man) = (0,0);
 
@@ -269,66 +270,60 @@ sub sniffForBreaks {
 	my @lineCache=();
 
 	my @data;
-	my @rightEdges;
-	my @leftEdges;
+	my @breakable;
+	my @lineLength;
+	my $maxLineLength=0;
 	
 	fillCache(*FIN, \@lineCache, $peekLines);
 
 	foreach (@lineCache) {
 		my @cols = unpack("C*", $_);
-		for(my $i=0; $i<@cols-1; $i++) {
-			if ($cols[$i]!=32) {
-				$data[$i]++;
+		push @lineLength, scalar(@cols);
+		$maxLineLength = scalar(@cols)>$maxLineLength ? scalar(@cols) : $maxLineLength;
+		if (@cols) {
+			for(my $i=0; $i<(@cols-1); $i++) {
+				if ($cols[$i]!=32) {
+					$data[$i]++;
+				}
+				if ($cols[$i]==32 || $cols[$i+1]==32) {
+					$breakable[$i]++;	
+				}
 			}
-			if ($cols[$i]==32 && $cols[$i+1]!=32) {
-				$rightEdges[$i]++;
-			}
-			if ($cols[$i]!=32 && $cols[$i+1]==32) {
-				$leftEdges[$i]++;	
-			}
+			$data[$#cols]++ if  $cols[$#cols]!=32;
+			$breakable[$#cols]++;
 		}
-		$data[$#cols]++ if  $cols[$#cols]!=32;
 	}
 
 	my ($dmin, $dmax) = (scalar(@lineCache),0);
-	my ($emin, $emax) = (scalar(@lineCache),0);
 	for (my $i=0; $i<@data; $i++) {
 		$data[$i] = 0 if not $data[$i];
 		$dmax = $data[$i] if $data[$i]>$dmax;
 		$dmin = $data[$i] if $data[$i]<$dmin;
 
-		$leftEdges[$i] = 0 if not $leftEdges[$i];
-		$emax = $leftEdges[$i] if $leftEdges[$i]>$emax;
-		$emin = $leftEdges[$i] if $leftEdges[$i]<$emin;
-		$rightEdges[$i] = 0 if not $rightEdges[$i];
-		$emax = $rightEdges[$i] if $rightEdges[$i]>$emax;
-		$emin = $rightEdges[$i] if $leftEdges[$i]<$emin;
+		$breakable[$i] = 0 if not $breakable[$i];
 	}
 	#print "data $dmin-$dmax\n";
 
-	my @strength = map{ if ($_>=(3*$dmax+$dmin)/4) {3}
-		elsif ($_==$dmin) {0}
-		elsif ($_<=($dmax+3*$dmin)/4) {1} 
-		else {2}
-		}  @data;
-	my @leftSig = map{ if ($_>=(3*$emax+$emin)/4) {3}
-		elsif ($_==$emin) {0}
-		elsif ($_<=($emax+3*$emin)/4) {1} 
-		else {2}
-		}  @leftEdges;
-	my @rightSig = map{ if ($_>=(3*$emax+$emin)/4) {3}
-		elsif ($_==$emin) {0}
-		elsif ($_<=($emax+3*$emin)/4) {1} 
-		else {2}
-		}  @rightEdges;
+	foreach (@lineLength) {
+		if ($_ < $maxLineLength) {
+			for(my $i=$_; $i<$maxLineLength; $i++) {
+				$breakable[$i]++;
+			}
+		}
+	}
 
-	findBreaksFromStrength(\@strength, \@breaks);	
+	my @strength = @{categorizeValues(\@data, [(3*$dmax+$dmin)/4, ($dmax+2*$dmin)/4, $dmin+1])}; 
+
+	#findBreaksFromStrength(\@strength, \@breaks);	
+	findBreaksFromStrongAndWeak(\@strength, \@breakable, \@breaks);	
 
 	if ($debug) {
 		print "\n";
+		my @poo = map(int($_/10), @breakable);
+		print joinWithBreaks(\@poo, \@breaks), ":B\n";
+		@poo = map(int($_ % 10), @breakable);
+		print joinWithBreaks(\@poo, \@breaks), ":B\n";
 		print joinWithBreaks(\@strength, \@breaks), ":S\n";
-		print joinWithBreaks(\@leftSig, \@breaks),  ":L\n";
-		print joinWithBreaks(\@rightSig, \@breaks), ":R\n";
 		print "\n";
 	}
 	
@@ -384,6 +379,100 @@ sub findBreaksFromStrength {
 			$monoDirection = $strengthRef->[$col] == 3 ? -1 : 1;
 		}
 	}
+}
+
+sub findBreaksFromStrongAndWeak {
+	my $strengthRef = shift;
+	my $breakableRef = shift;
+	my $breakRef = shift;
+
+	my $colIndex = 0;
+	#start with data
+	while ($strengthRef->[$colIndex]==0) {$colIndex++;}
+
+	my ($bmax, $bmin) = findMaxMin($breakableRef);
+	my $weakCut = int($breakTol*$bmax < $bmax-1 ? $breakTol*$bmax : $bmax-1);
+
+	while($colIndex < @$breakableRef) {
+		if ($breakableRef->[$colIndex] >= $weakCut) {
+			#found breakable run;
+			my $localBreakMax = 0;
+			my ($breakStart, $breakStop) = ($colIndex, $colIndex);
+			while($colIndex < @$strengthRef && $breakableRef->[$colIndex] >= $weakCut) {
+				$localBreakMax = $breakableRef->[$colIndex] if $breakableRef->[$colIndex]>$localBreakMax;
+				$breakStop = $colIndex;
+				$colIndex++;
+			}
+
+			$colIndex = $breakStart;
+			while ($colIndex <= $breakStop) {
+				my ($peakStart, $peakStop) = ($colIndex, $colIndex);
+				while ($colIndex < @$strengthRef && 
+					$colIndex <= $breakStop+1 &&
+					$breakableRef->[$colIndex] != $localBreakMax) {
+
+					$peakStart = ++$colIndex;
+				}
+				$peakStop = $peakStart;
+		
+				if ($peakStop <= $breakStop) {
+					my $localStrengthMax = 0;
+					my ($minStr, $minAt) = ($strengthRef->[$peakStart], $peakStart);
+					$minAt = $peakStart;
+
+					$colIndex = $peakStart;
+					while($colIndex <= $breakStop && $breakableRef->[$colIndex] == $localBreakMax) {
+						if ($strengthRef->[$colIndex] == 0 && $minStr >=0) {
+							$minStr = -1;
+							$minAt = $colIndex;
+						} elsif ($strengthRef->[$colIndex] <= $minStr) {
+							$minStr = $strengthRef->[$colIndex];
+							$minAt = $colIndex+1;
+						}
+						$peakStop = $colIndex;
+						$colIndex++;
+					}
+					if ($minAt < @$strengthRef) {
+						push @$breakRef, $minAt;
+					}
+				}
+			}
+			
+		} else {
+			$colIndex++;
+		}
+	}
+}
+
+sub categorizeValues {
+	my $valueRef = shift;
+	my $cutRef = shift;
+
+	my @cats;
+	my $maxCat = scalar(@$cutRef);
+	$#cats = scalar(@$valueRef)-1;
+	for(my $i=0; $i < @$valueRef; $i++) {
+		for(my $j=0; $j<=$maxCat; $j++){
+			if ($cutRef->[$j] and $valueRef->[$i] >= $cutRef->[$j]) {
+				$cats[$i]=$maxCat-$j;
+				last;
+			} else {
+				$cats[$i]=0;
+			}
+		}
+	}
+	return \@cats;
+}
+
+sub findMaxMin {
+	my $valRef = shift;
+	my ($min, $max) = ($valRef->[0], $valRef->[0]);
+
+	for (my $i = 1; $i < @$valRef; $i++) {
+		$min = $valRef->[$i] if $valRef->[$i] < $min;
+		$max = $valRef->[$i] if $valRef->[$i] > $max;
+	}
+	return $max, $min;
 }
 
 sub printPreviewSplitData {
