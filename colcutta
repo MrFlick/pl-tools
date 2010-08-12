@@ -295,7 +295,7 @@ sub sniffForBreaks {
 	}
 
 	my ($dmin, $dmax) = (scalar(@lineCache),0);
-	for (my $i=0; $i<@data; $i++) {
+	for (my $i=0; $i<$maxLineLength; $i++) {
 		$data[$i] = 0 if not $data[$i];
 		$dmax = $data[$i] if $data[$i]>$dmax;
 		$dmin = $data[$i] if $data[$i]<$dmin;
