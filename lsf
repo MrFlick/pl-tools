@@ -1,0 +1,63 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+lsf - print fill path for file to screen
+
+=head1 SYNOPSIS
+
+lsf [--nohost] file
+
+=head1 DESCRIPTION
+
+This program simply prints the full absolute path for a given
+file or files to the screen. This is useful for copying and 
+pasting paths when sharing files with others. By default,
+the computer name is also appended to the front.
+
+=head2 OPTIONS
+
+=over 4
+
+=item B<--nohost>
+
+Suppress the host name from the listing
+
+=back
+
+=head1 AUTHOR
+
+Matthew Flickinger (mflick@umich.edu)
+
+=cut
+use strict;
+use warnings;
+
+use File::Spec::Functions qw(rel2abs);
+use Net::Domain qw(hostname hostfqdn hostdomain);
+use Getopt::Long;
+use Pod::Usage;
+
+my $showHost=1;
+my($help, $man) = (0,0);
+
+GetOptions("host|h!" => \$showHost,
+    "help|?" => \$help,
+    "man" => \$man);
+
+pod2usage(-verbose => 1) if $help;
+pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+
+my $hostname = $showHost? hostname() : "";
+
+my @files = @ARGV;
+if (@files==0) {
+    @files = glob("*");
+}
+
+for my $f (@files) {
+    print "$hostname:" if $showHost;
+    print rel2abs($f);
+    print "/" if (-d $f);
+    print "\n";
+}
