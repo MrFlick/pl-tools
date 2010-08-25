@@ -21,7 +21,7 @@ where it ends, and the subset of those lines you wish to return.
 
 =item B<--start>
 
-You can specify a string, or a regular expression, to indicate where
+You can specify a regular expression to indicate where
 the data you are intereted in a file begins. If you know of a string
 that you are sure is in the file, but your data starts below it or above
 it, you can use that string as the C<--start> and then specify an
@@ -62,8 +62,9 @@ Prints the manual page and exits.
 
 =head2 NOTES
 
-You can read data from the the standard input/pipe by specifying
-C<-> as the filename
+Since C<--start> takes a regular expression, you must escape special
+characters such as C<[> and  C<*> if you want to match them exactly.
+For example C<--start "\[Data\]"> if you want to match C<[Data]>
 
 =head1 EXAMPLES
 
@@ -116,82 +117,78 @@ GetOptions("start=s" => \$startMarker,
 
 pod2usage(-verbose => 1) if $help;
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
-pod2usage() if @ARGV==0;
 
-#print STDERR "Extracto\n", "-"x25, "\n";
-#print STDERR "Start At [--start] = $startMarker\n";
-#print STDERR "Start Offset [--offset] = $startOffset\n";
-#print STDERR "End At [--end] = $endMarker\n";
-#print STDERR "Lines [--lines] = $lines\n";
-#print STDERR "Any other command line parameters are used as input file names\n";
-#print STDERR "The values for all the input files are merged into one file\n\n";
-
-if (@ARGV>0) {
+if (@ARGV) {
     foreach my $file (@ARGV) {
         if (open(FIN, "< $file")) {
-
-            my $readOpen = 0;
-            my $matchCount = 0;
-            my ($lineCheckRef, $maxLine) = parseLineRange($lines);
-
-            #set up buffer for negative offset
-            my @buffer;
-            my ($bufferSize, $bufferIndex) = (0,0);
-            my $thisOffset = 0;
-            if ($startOffset<0) {
-                $thisOffset = 0;
-                $bufferSize = abs($startOffset);
-            } else {
-                $thisOffset = $startOffset;
-                $bufferSize = 0;
-            };
-
-            while(my $line = <FIN>) {
-                if ($readOpen && ( ($endMarker eq "" && $line eq "\n") 
-                    or ($endMarker ne "" && $line =~ /$endMarker/)) ) {
-                    last;
-                }
-                if (!$readOpen && $line =~ /$startMarker/) {
-                    $readOpen=1;
-
-                    #parse items in buffer (if present)
-                    if ($bufferSize>0) {
-                        for(my $i=0; $i<$bufferSize; $i++) {
-                            if(&$lineCheckRef(++$matchCount)) {
-                                my $idx = ($i + $bufferIndex) % $bufferSize;
-                                print $buffer[$idx] if $buffer[$idx];
-                            };
-                        }
-                        @buffer = ();
-                    }
-                }
-                if ($readOpen) {
-                    if ($thisOffset>0) {
-                        $thisOffset--;
-                        next;
-                    }
-                    if(&$lineCheckRef(++$matchCount)) {
-                        print $line;
-                    } else {
-                        #print "skipped line $matchCount: $line";
-                    }
-                    if ($maxLine>0 && $matchCount >= $maxLine) {
-                        last;
-                    }
-                } elsif ($bufferSize>0) {
-                    #store in buffer in case start is in next few lines
-                    $buffer[$bufferIndex] = $line;
-                    $bufferIndex = ($bufferIndex+1) % $bufferSize;
-                }
-            }
-            close(FIN);
+            processFile(*FIN);
         } else {
             print STDERR "Cannot open file $file ($!)\n";
         }
+        close(FIN);
     }
+} elsif (!(-t STDIN)) {
+    processFile(*STDIN)
 } else {
-    print STDERR "No files specified.\n";
-    print STDERR "Try $0 *.txt\n";
+    pod2usage();
+}
+
+sub processFile {
+    local *FIN = shift;
+    my $readOpen = 0;
+    my $matchCount = 0;
+    my ($lineCheckRef, $maxLine) = parseLineRange($lines);
+
+    #set up buffer for negative offset
+    my @buffer;
+    my ($bufferSize, $bufferIndex) = (0,0);
+    my $thisOffset = 0;
+    if ($startOffset<0) {
+        $thisOffset = 0;
+        $bufferSize = abs($startOffset);
+    } else {
+        $thisOffset = $startOffset;
+        $bufferSize = 0;
+    };
+
+    while(my $line = <FIN>) {
+        if ($readOpen && ( ($endMarker eq "" && $line eq "\n") 
+            or ($endMarker ne "" && $line =~ /$endMarker/)) ) {
+            last;
+        }
+        if (!$readOpen && $line =~ /$startMarker/) {
+            $readOpen=1;
+
+            #parse items in buffer (if present)
+            if ($bufferSize>0) {
+                for(my $i=0; $i<$bufferSize; $i++) {
+                    if(&$lineCheckRef(++$matchCount)) {
+                        my $idx = ($i + $bufferIndex) % $bufferSize;
+                        print $buffer[$idx] if $buffer[$idx];
+                    };
+                }
+                @buffer = ();
+            }
+        }
+        if ($readOpen) {
+            if ($thisOffset>0) {
+                $thisOffset--;
+                next;
+            }
+            if(&$lineCheckRef(++$matchCount)) {
+                print $line;
+            } else {
+                #print "skipped line $matchCount: $line";
+            }
+            if ($maxLine>0 && $matchCount >= $maxLine) {
+                last;
+            }
+        } elsif ($bufferSize>0) {
+            #store in buffer in case start is in next few lines
+            $buffer[$bufferIndex] = $line;
+            $bufferIndex = ($bufferIndex+1) % $bufferSize;
+        }
+    }
 }
 
 sub parseLineRange {
