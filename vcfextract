@@ -167,7 +167,7 @@ sub createInfoDict {
     my %infos;
     foreach(@infos) {
         if (/=/) {
-            my ($fld, $val) = m/(.+)\s*=\s*(.+)/;
+            my ($fld, $val) = m/(.*)\s*=\s*(.*)/;
             $infos{$fld} = $val;
         } else {
             $infos{$_} = $ifFlagged;
