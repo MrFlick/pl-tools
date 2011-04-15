@@ -20,13 +20,14 @@ use Pod::Usage;
 #my $standardFields = "CHROM,POS,ID,REF,ALT,QUAL,FILTER";
 #my $infoFields = "AB,MQ0,DP";
 #my $genoFields = "GT,DP,GL,GQ";
-my $standardFields = "";
-my $infoFields = "";
+my $standardFields = "CHROM,POS,ID";
+my $infoFields = "AC,AN";
 my $genoFields = "";
 my $sampleNames = "";
 my $tall = 0;
 my $ifMissing = "";
 my $ifFlagged = "+";
+my $showOutHeader = 1;
 my ($help, $man) = (0,0);
 
 GetOptions("info=s" => \$infoFields,
@@ -35,6 +36,7 @@ GetOptions("info=s" => \$infoFields,
 	"samples=s" => \$sampleNames,
 	"tall" => \$tall,
 	"missing=s" => \$ifMissing,
+    "outheader!" => \$showOutHeader,
 	"flag=s" => \$ifFlagged,
 	"help|?" => \$help,
 	"man" => \$man);
@@ -54,7 +56,11 @@ my %colIndexes;
 my @standardIndexes;
 my $lineNumber=0;
 
-open(FIN, $file) or die("cannot open file $file ($!), stopped");
+if ($file =~ m/.gz$/) {
+    open(FIN, "zcat $file |") or die("cannot open file $file ($!), stopped");
+} else {
+    open(FIN, "< $file") or die("cannot open file $file ($!), stopped");
+}
 processFile(*FIN);
 close(FIN);
 
@@ -66,7 +72,7 @@ sub processFile {
 		if (!$header) {
 			$header = substr($_, 1); #take off leading #
 			readHeader($header);
-			writeHeader();
+			writeHeader() if $showOutHeader;
 			next;
 		}
 		$lineNumber++;
