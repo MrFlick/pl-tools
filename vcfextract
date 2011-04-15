@@ -94,20 +94,24 @@ sub readHeader {
 		}
 	}
 	die("some columns not found, stopped") if !$isOk;
-	foreach my $sample (@sampleNames) {
-		if (!exists($colIndexes{$sample})) {
-			print STDERR "sample name $sample not found in file\n";
-			$isOk=0;
-		}
-	}
-	die("some samples not found, stopped") if !$isOk;
+    if( $#sampleNames>=0) {
+        foreach my $sample (@sampleNames) {
+            if (!exists($colIndexes{$sample})) {
+                print STDERR "sample name $sample not found in file\n";
+                $isOk=0;
+            }
+        }
+        die("some samples not found, stopped") if !$isOk;
+    } else {
+        push @sampleNames, @colHeaders[ 9..$#colHeaders ];
+    }
 }
 
 sub writeHeader {
 	print "SAMPLE\t" if $tall;
-	print join("\t", @standardFields), "\t";
-	print join("\t", @infoFields), "\t";
-    print join("\t", @genoFields), "\n";
+	print join("\t", @standardFields), "\t" if @standardFields;
+	print join("\t", @infoFields), "\t" if @infoFields;
+    print join("\t", @genoFields), "\n" if @genoFields;
 }
 
 sub writeTallLine {
