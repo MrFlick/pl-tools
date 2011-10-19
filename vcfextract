@@ -123,10 +123,9 @@ sub readHeader {
 }
 
 sub writeHeader {
-	print "SAMPLE\t" if $tall;
-	print join("\t", @standardFields), "\t" if @standardFields;
-	print join("\t", @infoFields), "\t" if @infoFields;
-    print join("\t", @genoFields), "\n" if @genoFields;
+    my @headers = (@standardFields, @infoFields, @genoFields);
+    @headers=("SAMPLE",@headers) if $tall;
+	print join("\t", @headers), "\n";
 }
 
 sub writeTallLine {
