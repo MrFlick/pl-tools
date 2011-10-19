@@ -88,6 +88,7 @@ sub processFile {
 sub readHeader {
 	my $header = shift;
 
+    print STDERR "WARNING: File does not appear to be tab-delimited\n" if $header !~ /\t/;
 	my @colHeaders = split("\t", $header);
 	%colIndexes = map{ $colHeaders[$_]=> $_} (0..(scalar(@colHeaders)-1));
 	my $isOk=1;
@@ -95,19 +96,27 @@ sub readHeader {
 		if (exists($colIndexes{$std})) {
 			push @standardIndexes, $colIndexes{$std};
 		} else {
-			print STDERR "column $std not found in file\n";
+			print STDERR "ERROR: column $std not found in file\n";
 			$isOk=0;
 		}
 	}
-	die("some columns not found, stopped") if !$isOk;
+    if (!$isOk) {
+        print STDERR "INFO: found ", scalar(@colHeaders),
+            " column(s): [", join("][", @colHeaders), "]\n";
+        die("ERROR: some columns not found, stopped");
+    }
     if( $#sampleNames>=0) {
         foreach my $sample (@sampleNames) {
             if (!exists($colIndexes{$sample})) {
-                print STDERR "sample name $sample not found in file\n";
+                print STDERR "ERROR: sample name $sample not found in file\n";
                 $isOk=0;
             }
         }
-        die("some samples not found, stopped") if !$isOk;
+        if (!$isOk) {
+            print STDERR "INFO: found ", scalar(@colHeaders)-9,
+                " samples(s): [", join("][", @colHeaders[9..$#colHeaders]), "]\n";
+            die("ERROR: some samples not found, stopped");
+        }
     } else {
         push @sampleNames, @colHeaders[ 9..$#colHeaders ];
     }
