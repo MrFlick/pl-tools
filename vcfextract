@@ -47,15 +47,22 @@ my @infoFields = split(",", $infoFields);
 my @genoFields = split(",", $genoFields);
 my @sampleNames = split(",", $sampleNames);
 
-my $file = shift @ARGV;
-
-if ($file =~ m/.gz$/) {
-    open(FIN, "zcat $file |") or die("cannot open file $file ($!), stopped");
+if (@ARGV) {
+    my $file = shift @ARGV;
+    print STDERR "WARNING: this will only work in the first file listed ($file)\n" if @ARGV;
+    if ($file =~ m/.gz$/) {
+        open(FIN, "zcat $file |") or die("cannot open file $file ($!), stopped");
+    } else {
+        open(FIN, "< $file") or die("cannot open file $file ($!), stopped");
+    }
+    processFile(*FIN);
+    close(FIN);
+} elsif (!(-t STDIN)) {
+    processFile(*STDIN);
+    close(FIN);
 } else {
-    open(FIN, "< $file") or die("cannot open file $file ($!), stopped");
+    pod2usage();
 }
-processFile(*FIN);
-close(FIN);
 
 sub processFile {
     my $header="";
