@@ -40,7 +40,6 @@ GetOptions("info=s" => \$infoFields,
 
 pod2usage(-verbose => 1) if $help;
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
-#pod2usage() if @ARGV==0;
 
 my @standardFields = split(",", $standardFields);
 my @infoFields = split(",", $infoFields);
@@ -59,7 +58,6 @@ if (@ARGV) {
     close(FIN);
 } elsif (!(-t STDIN)) {
     processFile(*STDIN);
-    close(FIN);
 } else {
     pod2usage();
 }
