@@ -6,10 +6,77 @@ vcfExtract - turns data from a VCF file into a rectangular, tab-delimited file
 
 =head1 SYNOPSIS
 
-vcfExtract file
+vcfExtract [--cols "CHROM,POS,ID"] [--info ""] [--geno "GT"] 
+    [--samples samplelist] [--missing ""] [--flagged "+"] [--tall] 
+    [--nooutheader] [--help] [-man] file
+
+=head1 DESCRIPTION
+
+vcfExtract allows you to extract a subset of data from a VCF file into
+a nice, rectangular format. It will separate the INFO and FORMAT fields
+you request into columns. If there is more than one sample, the FORMAT
+fields may be prefixed with sample name, or you can use the C<--tall>
+option to have each sample go on its own line.
+
+=head2 OPTIONS
+
+=over 4
+
+=item B<--cols>
+
+This a comma-separated list with the names of the "standard" VCF columns (the first seven) 
+you want from the file
+
+=item B<--info>
+
+This is a comma separated list of the INFO fields you would like to pull from 
+each row. If a row does not that that information, the value of C<--missing> will
+be returned. If the info is just a flag (ie just KEY, rather than KEY=VAL) then
+the value of C<--flagged> is returned.
+
+=item B<--geno>
+
+This is a comma-separated list of the genotype fields you would like. If set to
+"" then no genotype data is returned. The default is "GT".
+
+=item B<--samples>
+
+You may optionally provide a comma-separated list of sample names (that must match the
+header row). If left blank, the genotype data for all samples will be returned.
+
+=item B<--missing>
+
+This is the value returned which a INFO or FORMAT field is not found for a given row.
+
+=item B<--flagged>
+
+Most INFO values are in the form KEY=VAL, but if just a KEY is found, then this is the
+value returned for this column; otherwise the value of C<--missing> will be returned.
+
+=item B<--tall>
+
+Using this option will print only one sample per line, and will add a column to each
+row with the name of that sample.
+
+=item B<--nooutheader>
+
+This will not put a header on the output
+
+=item B<--help>
+
+Prints a breif help message and exits.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=back
+
+=head1 AUTHOR
+
+Matthew Flickinger (mflick@umich.edu)
 
 =cut
-
 
 use strict;
 use warnings;
