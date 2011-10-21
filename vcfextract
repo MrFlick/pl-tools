@@ -17,12 +17,9 @@ use warnings;
 use Getopt::Long;
 use Pod::Usage;
 
-#my $standardFields = "CHROM,POS,ID,REF,ALT,QUAL,FILTER";
-#my $infoFields = "AB,MQ0,DP";
-#my $genoFields = "GT,DP,GL,GQ";
 my $standardFields = "CHROM,POS,ID";
-my $infoFields = "AC,AN";
-my $genoFields = "";
+my $infoFields = "";
+my $genoFields = "GT";
 my $sampleNames = "";
 my $tall = 0;
 my $ifMissing = "";
@@ -51,10 +48,6 @@ my @genoFields = split(",", $genoFields);
 my @sampleNames = split(",", $sampleNames);
 
 my $file = shift @ARGV;
-my $header="";
-my %colIndexes;
-my @standardIndexes;
-my $lineNumber=0;
 
 if ($file =~ m/.gz$/) {
     open(FIN, "zcat $file |") or die("cannot open file $file ($!), stopped");
@@ -65,34 +58,45 @@ processFile(*FIN);
 close(FIN);
 
 sub processFile {
+    my $header="";
+    my $lineNumber=0;
+    my $colIdxRef;
+    my $standardIdxRef;
 	local *FIN = shift;
 	while (<FIN>) {
 		chomp;
 		next if /^##/;
 		if (!$header) {
-			$header = substr($_, 1); #take off leading #
-			readHeader($header);
-			writeHeader() if $showOutHeader;
+            $header = $_; 
+			($colIdxRef, $standardIdxRef) = readHeader($header, \@standardFields, \@sampleNames);
+			writeHeader(\@standardFields, \@infoFields, \@genoFields, \@sampleNames, $tall) if $showOutHeader;
 			next;
 		}
 		$lineNumber++;
 		my @cols = split("\t");
 		if ($tall) {
-			writeTallLine(\@cols);
+			writeTallLine(\@cols, $colIdxRef, $standardIdxRef, \@infoFields, \@genoFields, \@sampleNames);
 		} else {
-			writeWideLine(\@cols);
+			writeWideLine(\@cols, $colIdxRef, $standardIdxRef, \@infoFields, \@genoFields, \@sampleNames);
 		}
 	}
 }
 
 sub readHeader {
 	my $header = shift;
+    my $standardRef = shift;
+    my $sampleRef = shift;
+    my %colIndexes;
 
+    $header =~ s/^#//g;
     print STDERR "WARNING: File does not appear to be tab-delimited\n" if $header !~ /\t/;
 	my @colHeaders = split("\t", $header);
-	%colIndexes = map{ $colHeaders[$_]=> $_} (0..(scalar(@colHeaders)-1));
+    %colIndexes = map{ $colHeaders[$_] => $_} (0..$#colHeaders);
+
+    my @standardIndexes;
+
 	my $isOk=1;
-	foreach my $std (@standardFields) {
+	foreach my $std (@$standardRef) {
 		if (exists($colIndexes{$std})) {
 			push @standardIndexes, $colIndexes{$std};
 		} else {
@@ -105,57 +109,82 @@ sub readHeader {
             " column(s): [", join("][", @colHeaders), "]\n";
         die("ERROR: some columns not found, stopped");
     }
-    if( $#sampleNames>=0) {
-        foreach my $sample (@sampleNames) {
+    if( $#$sampleRef>=0) {
+        foreach my $sample (@$sampleRef) {
             if (!exists($colIndexes{$sample})) {
                 print STDERR "ERROR: sample name $sample not found in file\n";
                 $isOk=0;
             }
         }
         if (!$isOk) {
-            print STDERR "INFO: found ", scalar(@colHeaders)-9,
-                " samples(s): [", join("][", @colHeaders[9..$#colHeaders]), "]\n";
+            print STDERR "INFO: found ", scalar(@colHeaders),
+                " column(s): [", join("][", @colHeaders), "]\n";
             die("ERROR: some samples not found, stopped");
         }
     } else {
-        push @sampleNames, @colHeaders[ 9..$#colHeaders ];
+        if (exists($colIndexes{"FORMAT"})) {
+            for(my $i=$colIndexes{"FORMAT"}+1; $i<@colHeaders; $i++) {
+                push @$sampleRef, $colHeaders[$i];
+            }
+        }
     }
+    return \%colIndexes, \@standardIndexes;
 }
 
 sub writeHeader {
-    my @headers = (@standardFields, @infoFields, @genoFields);
-    @headers=("SAMPLE",@headers) if $tall;
+    my ($standardRef, $infoRef, $genoRef, $sampleRef, $isTall) = @_;
+    my @headers = (@$standardRef, @$infoRef);
+    if ($isTall) {
+        @headers=("SAMPLE",@headers, @$genoRef);
+    } else {
+        if (scalar(@$sampleRef)>1) {
+            if (scalar(@$genoRef)>1) {
+                #many geno, many samples; use sample:geno
+                for(my $s=0; $s<@$sampleRef; $s++) {
+                    for(my $i=0; $i<@$genoRef; $i++) {
+                        push @headers, $sampleRef->[$s].":".$genoRef->[$i];
+                    }
+                }
+            } elsif (scalar(@$genoRef)==1) {
+                #one geno, many samples; use sample names
+                push @headers, @$sampleRef;
+            }
+        } else {
+            #one sample; use geno name(s)
+            push @headers, @$genoRef;
+        }
+    }
 	print join("\t", @headers), "\n";
 }
 
 sub writeTallLine {
-	my $colRef = shift;
-	foreach my $sample(@sampleNames) {
+    my ($dataRef, $indexRef, $standardRef, $infoRef, $genoRef, $sampleRef) = @_;
+	foreach my $sample(@$sampleRef) {
 		print $sample;
-		print "\t", join("\t", @$colRef[@standardIndexes]) if @standardIndexes;
-		print "\t", join("\t",extractInfo($colRef->[$colIndexes{"INFO"}], \@infoFields)) if @infoFields;
-		print "\t", join("\t",extractGeno($colRef->[$colIndexes{"FORMAT"}], 
-			$colRef->[$colIndexes{$sample}], \@genoFields)) if @genoFields;
+		print "\t", join("\t", @$dataRef[@$standardRef]) if scalar(@$standardRef);
+		print "\t", join("\t",extractInfo($dataRef->[$indexRef->{"INFO"}], $infoRef)) if scalar(@$infoRef);
+		print "\t", join("\t",extractGeno($dataRef->[$indexRef->{"FORMAT"}], 
+			$dataRef->[$indexRef->{$sample}], $genoRef)) if scalar(@$genoRef);
 		print "\n";
 	}
 }
 
 sub writeWideLine {
-	my $colRef = shift;
+    my ($dataRef, $indexRef, $standardRef, $infoRef, $genoRef, $sampleRef) = @_;
 	my $needTab = 0;
-	if (@standardIndexes) {
-		print join("\t", @$colRef[@standardIndexes]);
+	if (scalar(@$standardRef)) {
+		print join("\t", @$dataRef[@$standardRef]);
 		$needTab = 1;
 	}
-	if (@infoFields) {
+	if (scalar(@$infoRef)) {
 		print "\t" if $needTab;
-		print join("\t",extractInfo($colRef->[$colIndexes{"INFO"}], \@infoFields));
+		print join("\t",extractInfo($dataRef->[$indexRef->{"INFO"}], $infoRef));
 		$needTab = 1;
 	}
-	foreach my $sample (@sampleNames) {
+	foreach my $sample (@$sampleRef) {
 		print "\t" if $needTab;
-		print join("\t",extractGeno($colRef->[$colIndexes{"FORMAT"}], 
-			$colRef->[$colIndexes{$sample}], \@genoFields));
+		print join("\t",extractGeno($dataRef->[$indexRef->{"FORMAT"}], 
+			$dataRef->[$indexRef->{$sample}], $genoRef));
 		$needTab = 1;
 	}
 	print "\n";
