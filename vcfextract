@@ -91,6 +91,7 @@ my $sampleNames = "";
 my $tall = 0;
 my $ifMissing = "";
 my $ifFlagged = "+";
+my $GTformat = "";
 my $showOutHeader = 1;
 my ($help, $man) = (0,0);
 
@@ -100,8 +101,9 @@ GetOptions("info=s" => \$infoFields,
 	"samples=s" => \$sampleNames,
 	"tall" => \$tall,
 	"missing=s" => \$ifMissing,
-    "outheader!" => \$showOutHeader,
 	"flag=s" => \$ifFlagged,
+    "gtformat=s" => \$GTformat,
+    "outheader!" => \$showOutHeader,
 	"help|?" => \$help,
 	"man" => \$man);
 
@@ -231,18 +233,31 @@ sub writeHeader {
 
 sub writeTallLine {
     my ($dataRef, $indexRef, $standardRef, $infoRef, $genoRef, $sampleRef) = @_;
+    my @alleles;
+    if ($GTformat =~ /A/) {
+        push @alleles, @$dataRef[3];
+        push @alleles, split(",",@$dataRef[4]);
+    }
 	foreach my $sample(@$sampleRef) {
 		print $sample;
 		print "\t", join("\t", @$dataRef[@$standardRef]) if scalar(@$standardRef);
 		print "\t", join("\t",extractInfo($dataRef->[$indexRef->{"INFO"}], $infoRef)) if scalar(@$infoRef);
 		print "\t", join("\t",extractGeno($dataRef->[$indexRef->{"FORMAT"}], 
-			$dataRef->[$indexRef->{$sample}], $genoRef)) if scalar(@$genoRef);
+			$dataRef->[$indexRef->{$sample}], 
+            $genoRef,
+            \$GTformat,
+            \@alleles)) if scalar(@$genoRef);
 		print "\n";
 	}
 }
 
 sub writeWideLine {
     my ($dataRef, $indexRef, $standardRef, $infoRef, $genoRef, $sampleRef) = @_;
+    my @alleles;
+    if ($GTformat =~ /A/) {
+        push @alleles, @$dataRef[3];
+        push @alleles, split(",",@$dataRef[4]);
+    }
 	my $needTab = 0;
 	if (scalar(@$standardRef)) {
 		print join("\t", @$dataRef[@$standardRef]);
@@ -256,10 +271,60 @@ sub writeWideLine {
 	foreach my $sample (@$sampleRef) {
 		print "\t" if $needTab;
 		print join("\t",extractGeno($dataRef->[$indexRef->{"FORMAT"}], 
-			$dataRef->[$indexRef->{$sample}], $genoRef));
+			$dataRef->[$indexRef->{$sample}], 
+            $genoRef,
+            \$GTformat,
+            \@alleles));
 		$needTab = 1;
 	}
 	print "\n";
+}
+
+sub formatGT {
+    my $formatRef = shift;
+    my $gtRef = shift;
+    my $alleleRef = shift;
+
+    my ($a1, $a2, $phase, $ploid, $missing) = parseGT($gtRef);
+    if ($$formatRef eq "#") {
+        return ($a1>0) + ($a2>0);
+    } else {
+        my $gt = $$formatRef;
+        my $pos = index($gt,"0");
+        if ($pos>=0) {
+            substr($gt, $pos, 1) = $a1;
+            $pos = index($gt, "0", $pos+1);
+        }
+        if ($pos>=0) {
+            substr($gt, $pos, 1) = $a2;
+        }
+        $pos = index($gt, "A");
+        if ($pos>=0) {
+            substr($gt, $pos, 1) = $alleleRef->[$a1];
+            $pos = index($gt, "A", $pos+1);
+        }
+        if ($pos>=0) {
+            substr($gt, $pos, 1) = $alleleRef->[$a2];
+        }
+        $gt =~ s/\?/$phase/;
+        return $gt;
+    }
+}
+
+sub parseGT {
+    my $gtRef = shift;
+
+    my ($a1, $a2, $phase, $ploid, $missing) = ("0","0","/",0,0);
+    if (length($$gtRef)==3) {
+        $ploid=2;
+        ($a1, $phase, $a2) = split(//, $$gtRef);
+        $missing = 1 if $a1 eq "." || $a2 eq ".";
+    } elsif (length($$gtRef)==1) {
+        $ploid=1;
+        $a1=$$gtRef;
+        $missing = 1 if $a1==".";
+    }
+    return $a1, $a2, $phase, $ploid, $missing;
 }
 
 
@@ -299,12 +364,18 @@ sub extractGeno {
     my $format = shift;
     my $geno = shift;
     my $fieldRef = shift;
+    my $gtFormatRef = shift;
+    my $alleleRef = shift;
 
     my $genoDictRef = createGenoDict($format, $geno);  
     my @cols;
     foreach (@$fieldRef) {
 		if (exists $genoDictRef->{$_}) {
-			push @cols, $genoDictRef->{$_};
+            if ($_ eq "GT" && length($$gtFormatRef)) {
+                push @cols, formatGT($gtFormatRef, \($genoDictRef->{$_}), $alleleRef);
+			} else {
+                push @cols, $genoDictRef->{$_};
+            }
 		} else {
 			push @cols, $ifMissing;
 		}
