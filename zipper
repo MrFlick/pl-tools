@@ -7,9 +7,9 @@ zipper - matches up two sorted files based on multiple columns
 
 =head1 SYNOPSIS
 
-zipper --in datafile --zip zipfile [--exclude] [--out outfile]
-    [--fields 0,1] [--infields 0,1] [--filterfields 0,1] [--sep '\t']
-    {--out STDOUT] [--man]
+zipper --in datafile --zip zipfile [--exclude] 
+    [--keys 0,1] [--inkeys 0,1] [--zipkeys 0,1] [--sep '\t']
+    {--out STDOUT] [--help] [--man]
 
 =head1 DESCRIPTION
 
@@ -32,10 +32,10 @@ use Getopt::Long;
 use Pod::Usage;
 
 my $infile = "";
-my $infields = "";
-my $filterfile = "";
-my $filterfields = "";
-my $fields = "0,1";
+my $inkeys = "";
+my $zipfile = "";
+my $zipkeys = "";
+my $keys = "0,1";
 my $exclude = 0;
 my $mergefields = "";
 my $skiplines = "0";
@@ -44,10 +44,10 @@ my $sep = "\t";
 my ($help, $man) = (0,0);
 
 GetOptions("in=s" => \$infile,
-    "infields=s" => \$infields,
-    "zip=s" => \$filterfile,
-    "zipfields=s" => \$filterfields,
-    "fields=s" => \$fields,
+    "inkeys=s" => \$inkeys,
+    "zip=s" => \$zipfile,
+    "zipfields=s" => \$zipkeys,
+    "keys=s" => \$keys,
     "merge=s" => \$mergefields,
     "skip=s" => \$skiplines,
     "exclude" => \$exclude,
@@ -58,29 +58,29 @@ GetOptions("in=s" => \$infile,
 );
 
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
-pod2usage(-verbose => 1) if $help || !$infile || !$filterfile;
+pod2usage(-verbose => 1) if $help || !$infile || !$zipfile;
 
-my @infields = split(",", $infields || $fields);
-my @filterfields = split(",", $filterfields || $fields);
+my @inkeys = split(",", $inkeys || $keys);
+my @zipkeys = split(",", $zipkeys || $keys);
 my @mergefields = split(",", $mergefields);
 
 die("field counts must match in:"
-    .join(",",@infields)." filter:"
-    .join(",", @filterfields).", stopped") if @infields != @filterfields;
-my ($skipin, $skipfilt) = split(",",$skiplines);
-$skipfilt = $skipfilt || $skipin;
+    .join(",",@inkeys)." filter:"
+    .join(",", @zipkeys).", stopped") if @inkeys != @zipkeys;
+my ($skipin, $skipzip) = split(",",$skiplines);
+$skipzip = $skipzip || $skipin;
 
 open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
 for(my $i=0; $i<$skipin; $i++) {<FIN>;}
-open(LIN, "<$filterfile") or die("cannot open $filterfile ($!), stopped");
-for(my $i=0; $i<$skipfilt; $i++) {<LIN>;}
+open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
+for(my $i=0; $i<$skipzip; $i++) {<LIN>;}
 open(FOUT, ">$outfile") or die("cannot open $outfile ($!), stopped");
 
 my @data = getNextLine(*FIN);
 my @filter = getNextLine(*LIN);
 
 while(@data && @filter) {
-    my $comp = compFields(@data[@infields], @filter[@filterfields]);
+    my $comp = compFields(@data[@inkeys], @filter[@zipkeys]);
     if ($comp<0) {
         print FOUT join("\t", @data), "\n" if $exclude;
         @data = getNextLine(*FIN);
