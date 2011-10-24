@@ -8,7 +8,7 @@ vcfExtract - turns data from a VCF file into a rectangular, tab-delimited file
 
 vcfExtract [--cols "CHROM,POS,ID"] [--info ""] [--geno "GT"] 
     [--samples samplelist] [--missing ""] [--flagged "+"] [--tall] 
-    [--nooutheader] [--help] [-man] file
+    [--gtformat ""] [--nooutheader] [--help] [-man] file
 
 =head1 DESCRIPTION
 
@@ -58,13 +58,38 @@ value returned for this column; otherwise the value of C<--missing> will be retu
 Using this option will print only one sample per line, and will add a column to each
 row with the name of that sample.
 
+=item B<--gtformat>
+
+VCF stores genotypes were 0 represents the reference allele (REF) and higher numbers
+indicate a position in the (comma-separated) ALT column. With this option you can 
+change the GT field to print with alleles or a count of non reference alleles
+
+=over 4
+
+=item 0 is the index in the standard VCF format
+
+=item A is the name (letter) of the allele
+
+=item # is the non-reference count
+
+=item ? is the phase separater in the original file
+
+=back 
+
+This means that "00" will return the indexes with no separator, "0?0" will
+give exactly what's in the file (no need for a format). "AA" will give the 
+named genotype alleles. "A/A" will give the alleles but will ignore phase
+information in the file and put a slash between the alleles. "#" will give 
+the count of non-reference alleles (0,1, or 2). You can include any other
+characters as well; "[A,A]" for example.
+
 =item B<--nooutheader>
 
 This will not put a header on the output
 
 =item B<--help>
 
-Prints a breif help message and exits.
+Prints a brief help message and exits.
 
 =item B<--man>
 
@@ -89,7 +114,7 @@ my $infoFields = "";
 my $genoFields = "GT";
 my $sampleNames = "";
 my $tall = 0;
-my $ifMissing = "";
+my $ifMissing = ".";
 my $ifFlagged = "+";
 my $GTformat = "";
 my $showOutHeader = 1;
@@ -235,8 +260,8 @@ sub writeTallLine {
     my ($dataRef, $indexRef, $standardRef, $infoRef, $genoRef, $sampleRef) = @_;
     my @alleles;
     if ($GTformat =~ /A/) {
-        push @alleles, @$dataRef[3];
-        push @alleles, split(",",@$dataRef[4]);
+        push @alleles, @$dataRef[$indexRef->{"REF"}];
+        push @alleles, split(",",@$dataRef[$indexRef->{"ALT"}]);
     }
 	foreach my $sample(@$sampleRef) {
 		print $sample;
@@ -287,6 +312,7 @@ sub formatGT {
 
     my ($a1, $a2, $phase, $ploid, $missing) = parseGT($gtRef);
     if ($$formatRef eq "#") {
+        return $ifMissing if $missing;
         return ($a1>0) + ($a2>0);
     } else {
         my $gt = $$formatRef;
@@ -300,11 +326,11 @@ sub formatGT {
         }
         $pos = index($gt, "A");
         if ($pos>=0) {
-            substr($gt, $pos, 1) = $alleleRef->[$a1];
+            substr($gt, $pos, 1) = ($a1 ne ".") ? $alleleRef->[$a1] : $ifMissing;
             $pos = index($gt, "A", $pos+1);
         }
         if ($pos>=0) {
-            substr($gt, $pos, 1) = $alleleRef->[$a2];
+            substr($gt, $pos, 1) = ($a2 ne ".") ? $alleleRef->[$a2]: $ifMissing;
         }
         $gt =~ s/\?/$phase/;
         return $gt;
@@ -314,15 +340,16 @@ sub formatGT {
 sub parseGT {
     my $gtRef = shift;
 
-    my ($a1, $a2, $phase, $ploid, $missing) = ("0","0","/",0,0);
+    my ($a1, $a2, $phase, $ploid, $missing) = (".",".","/",0,0);
     if (length($$gtRef)==3) {
         $ploid=2;
         ($a1, $phase, $a2) = split(//, $$gtRef);
         $missing = 1 if $a1 eq "." || $a2 eq ".";
     } elsif (length($$gtRef)==1) {
         $ploid=1;
+        $phase="";
         $a1=$$gtRef;
-        $missing = 1 if $a1==".";
+        $missing = 1 if $a1 eq ".";
     }
     return $a1, $a2, $phase, $ploid, $missing;
 }
