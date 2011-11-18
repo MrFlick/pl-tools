@@ -10,7 +10,7 @@ zipper - matches up two sorted files based on multiple columns
 
 zipper --in datafile --zip zipfile [--exclude] 
     [--keys 0,1] [--inkeys 0,1] [--zipkeys 0,1] [--sep '\t']
-    {--out STDOUT] [--help] [--man]
+    [--out STDOUT] [--help] [--man]
 
 =head1 DESCRIPTION
 
@@ -37,19 +37,22 @@ my $infile = "";
 my $inkeys = "";
 my $zipfile = "";
 my $zipkeys = "";
-my $keys = "0,1";
+my $mode = "lookup";
+my $keys = "1";
 my $exclude = 0;
 my $mergefields = "";
 my $skiplines = "0";
 my $sorttype = "";
 my $outfile = "-";
-my $sep = "\t";
+my $sep = "";
+my $comment = "#";
 my ($help, $man) = (0,0);
 
 GetOptions("in=s" => \$infile,
     "inkeys=s" => \$inkeys,
     "zip=s" => \$zipfile,
-    "zipfields=s" => \$zipkeys,
+    "zipkeys=s" => \$zipkeys,
+    "mode=s" => \$mode,
     "keys=s" => \$keys,
     "merge=s" => \$mergefields,
     "skip=s" => \$skiplines,
@@ -57,16 +60,18 @@ GetOptions("in=s" => \$infile,
     "sort=s" => \$sorttype,
     "out=s" => \$outfile,
     "sep=s" => \$sep,
+    "comment=s" => \$comment,
     "help|?" => \$help,
     "man" => \$man
 );
 
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
+$infile = $infile || shift @ARGV;
 pod2usage(-verbose => 1) if $help || !$infile || !$zipfile;
 
-my @inkeys = split(",", $inkeys || $keys);
-my @zipkeys = split(",", $zipkeys || $keys);
-my @mergefields = split(",", $mergefields);
+my @inkeys = map {$_-1} split(",", $inkeys || $keys);
+my @zipkeys = map {$_-1} split(",", $zipkeys || $keys);
+my @mergefields = map {$_-1} split(",", $mergefields);
 
 die("field counts must match in:"
     .join(",",@inkeys)." filter:"
@@ -80,60 +85,97 @@ open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
 for(my $i=0; $i<$skipzip; $i++) {<LIN>;}
 open(FOUT, ">$outfile") or die("cannot open $outfile ($!), stopped");
 
-my @data = getNextLine(*FIN);
-my @filter = getNextLine(*LIN);
+if ($mode eq "sorted") {
+    my @data = getNextLine(*FIN);
+    my @filter = getNextLine(*LIN);
 
-my @sorttype;
-if ($sorttype) {
-    @sorttype = split(",", lc $sorttype);
-    die("sorted count (". @sorttype . 
-        ") does not match key count (".@inkeys.")") if @sorttype != @inkeys;
-} else {
-    for(my $i=0; $i<@inkeys; $i++) {
-        if (looks_like_number($data[$inkeys[$i]]) &&
-            looks_like_number($filter[$zipkeys[$i]])) {
-            push @sorttype, "n";
+    my @sorttype = getSortType($sorttype, [@data[@inkeys]], [@filter[@zipkeys]]);
+
+    while(@data && @filter) {
+        my $comp = compFields(\@sorttype, @data[@inkeys], @filter[@zipkeys]);
+        if ($comp<0) {
+            print FOUT join("\t", @data), "\n" if $exclude;
+            @data = getNextLine(*FIN);
+        } elsif ($comp==0) {
+            print FOUT join("\t", @data, @filter[@mergefields]), "\n" if !$exclude;
+            @data = getNextLine(*FIN);
+            @filter = getNextLine(*LIN);
         } else {
-            push @sorttype, "c";
+            @filter = getNextLine(*LIN);
         }
     }
-}
 
-while(@data && @filter) {
-    my $comp = compFields(@data[@inkeys], @filter[@zipkeys]);
-    if ($comp<0) {
-        print FOUT join("\t", @data), "\n" if $exclude;
-        @data = getNextLine(*FIN);
-    } elsif ($comp==0) {
-        print FOUT join("\t", @data, @filter[@mergefields]), "\n" if !$exclude;
-        @data = getNextLine(*FIN);
-        @filter = getNextLine(*LIN);
-    } else {
-        @filter = getNextLine(*LIN);
+} elsif ($mode eq "lookup") {
+    my @filter;
+    my %lookup;
+    while( @filter=getNextLine(*LIN) ) {
+        my $key = join("\t", @filter[@zipkeys]);
+        if (@mergefields) {
+            $lookup{$key}  = [join("\t", @filter[@mergefields])];
+        } else {
+            $lookup{$key} = [];
+        }
     }
-}
 
+    my @data;
+    while( @data = getNextLine(*FIN) ) {
+        my $key = join("\t", @data[@inkeys]);
+        if (exists $lookup{$key} xor $exclude ) {
+            my @m;
+            @m = @{$lookup{$key}} if exists $lookup{$key};
+            print FOUT join("\t", @data, @m), "\n";
+        }
+    }
+} else {
+    print STDERR "Unknown mode: $mode\n";
+}
 
 close(FOUT);
 close(LIN);
 close(FIN);
 
+sub getSortType {
+    my ($sorttype, $dataRef, $filterRef) = @_;
+    my @sorttype;
+    if ($sorttype) {
+        @sorttype = split(",", lc $sorttype);
+        die("sorted count (". @sorttype . 
+            ") does not match key count (".@$dataRef.")") if @sorttype != @$dataRef;
+    } else {
+        for(my $i=0; $i<@{$dataRef}; $i++) {
+            if (looks_like_number($dataRef->[$i]) &&
+                looks_like_number($filterRef->[$i])) {
+                push @sorttype, "n";
+            } else {
+                push @sorttype, "c";
+            }
+        }
+    }
+    return @sorttype;
+}
+
 sub getNextLine {
     my $fh = shift;
     my $line = <$fh>;
+    #while($line !~ /^$comment/) {$line = <$fh>;}
     if ($line) {
         chomp($line);
-        return split($sep, $line);
+        if (!$sep) {
+            return split(" ", $line);
+        } else {
+            return split($sep, $line);
+        }
     } else {
         return split("","");
     }
 }
 
 sub compFields {
+    my $sorttypeRef = shift @_;
     my @fields = @_;
     my $fc = scalar(@fields)/2;
     for (my $i=0; $i<$fc; $i++) {
-        if (@sorttype && $sorttype[$i] eq "n") {
+        if (@$sorttypeRef && $sorttypeRef->[$i] eq "n") {
             if($fields[$i] != $fields[$i+$fc]) {
                 return $fields[$i] <=> $fields[$i+$fc];
             }
