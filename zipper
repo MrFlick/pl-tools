@@ -38,10 +38,14 @@ my $inkeys = "";
 my $zipfile = "";
 my $zipkeys = "";
 my $mode = "lookup";
-my $keys = "1";
+my $keys = "";
+my $fields = "";
 my $exclude = 0;
-my $mergefields = "";
-my $skiplines = "0";
+my $infields = "";
+my $zipfields = "";
+my $hasinheader = 1;
+my $haszipheader = 1;
+my $printoutheader = 0;
 my $sorttype = "";
 my $outfile = "-";
 my $sep = "";
@@ -52,10 +56,14 @@ GetOptions("in=s" => \$infile,
     "inkeys=s" => \$inkeys,
     "zip=s" => \$zipfile,
     "zipkeys=s" => \$zipkeys,
-    "mode=s" => \$mode,
     "keys=s" => \$keys,
-    "merge=s" => \$mergefields,
-    "skip=s" => \$skiplines,
+    "fields=s" => \$fields,
+    "mode=s" => \$mode,
+    "infields=s" => \$infields,
+    "zipfields=s" => \$zipfields,
+    "inheader!" => \$hasinheader,
+    "zipheader!" => \$haszipheader,
+    "outheader!" => \$printoutheader,
     "exclude" => \$exclude,
     "sort=s" => \$sorttype,
     "out=s" => \$outfile,
@@ -66,28 +74,30 @@ GetOptions("in=s" => \$infile,
 );
 
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
-$infile = $infile || shift @ARGV;
-pod2usage(-verbose => 1) if $help || !$infile || !$zipfile;
+pod2usage(-verbose => 1) if $help || !$zipfile;
 
-my @inkeys = map {$_-1} split(",", $inkeys || $keys);
-my @zipkeys = map {$_-1} split(",", $zipkeys || $keys);
-my @mergefields = map {$_-1} split(",", $mergefields);
+cleanFileName(\$infile,\$inkeys,\$infields, $keys, $fields);
+cleanFileName(\$zipfile,\$zipkeys,\$zipfields, $keys, $fields);
 
-die("field counts must match in:"
-    .join(",",@inkeys)." filter:"
-    .join(",", @zipkeys).", stopped") if @inkeys != @zipkeys;
-my ($skipin, $skipzip) = split(",",$skiplines);
-$skipzip = $skipzip || $skipin;
+if ($infile = $infile || shift @ARGV) {
+    open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
+} elsif (!(-t STDIN)) {
+    open(FIN, "-");
+}  else {
+    pod2usage(-verbose => 1);
+}
 
-open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
-for(my $i=0; $i<$skipin; $i++) {<FIN>;}
 open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
-for(my $i=0; $i<$skipzip; $i++) {<LIN>;}
 open(FOUT, ">$outfile") or die("cannot open $outfile ($!), stopped");
+
+my (@inkeys, @infields, @zipkeys, @zipfields);
+
 
 if ($mode eq "sorted") {
     my @data = getNextLine(*FIN);
     my @filter = getNextLine(*LIN);
+
+    findKeys(\@inkeys, \@zipkeys,\@data, \@filter, $inkeys, $zipkeys, $hasinheader, $haszipheader);
 
     my @sorttype = getSortType($sorttype, [@data[@inkeys]], [@filter[@zipkeys]]);
 
@@ -97,7 +107,7 @@ if ($mode eq "sorted") {
             print FOUT join("\t", @data), "\n" if $exclude;
             @data = getNextLine(*FIN);
         } elsif ($comp==0) {
-            print FOUT join("\t", @data, @filter[@mergefields]), "\n" if !$exclude;
+            print FOUT join("\t", @data, @filter[@zipfields]), "\n" if !$exclude;
             @data = getNextLine(*FIN);
             @filter = getNextLine(*LIN);
         } else {
@@ -106,18 +116,24 @@ if ($mode eq "sorted") {
     }
 
 } elsif ($mode eq "lookup") {
-    my @filter;
+    my (@data, @filter);
     my %lookup;
+
+    @data = getNextLine(*LIN) if $hasinheader;
+    @filter = getNextLine(*FIN) if $haszipheader;
+    
+    findKeys(\@inkeys, \@zipkeys,\@data, \@filter, $inkeys, $zipkeys, $hasinheader, $haszipheader);
+    findFields(\@infields, \@zipfields,\@data, \@filter, $infields, $zipfields, $hasinheader, $haszipheader);
+    
     while( @filter=getNextLine(*LIN) ) {
         my $key = join("\t", @filter[@zipkeys]);
-        if (@mergefields) {
-            $lookup{$key}  = [join("\t", @filter[@mergefields])];
+        if (@zipfields) {
+            $lookup{$key}  = [join("\t", @filter[@zipfields])];
         } else {
             $lookup{$key} = [];
         }
     }
 
-    my @data;
     while( @data = getNextLine(*FIN) ) {
         my $key = join("\t", @data[@inkeys]);
         if (exists $lookup{$key} xor $exclude ) {
@@ -133,6 +149,101 @@ if ($mode eq "sorted") {
 close(FOUT);
 close(LIN);
 close(FIN);
+
+sub cleanFileName {
+    my $filenameRef = shift;
+    my $keyRef = shift;
+    my $fieldRef = shift;
+    my $keys = shift;
+    my $fields = shift;
+    
+    if ($$filenameRef =~ s/\[([^\[].*)\]$//) {
+        my @c = split(";", $1, -1);
+        $$keyRef = $$keyRef || $keys || $c[0];
+        $$fieldRef = $$fieldRef || ".".$fields || $c[1] || "." if @c==2;
+    }
+}
+
+sub findKeys {
+    my ($inIdxRef, $zipIdxRef, $inRef, $zipRef, $inkeys, $zipkeys, $inheader, $zipheader) = @_;
+
+    my (%inlookup, %ziplookup);
+    %inlookup = map{$inRef->[$_]=> $_} 0..$#$inRef if $inheader;
+    %ziplookup = map{$zipRef->[$_]=> $_} 0..$#$zipRef if $zipheader;
+
+    if($inkeys eq "" and $zipkeys eq "") {
+        if ($inheader && $zipheader) {
+            my $overlap=0;
+            for(my $i=0; $i<=$#$zipRef; $i++) {
+                if ( exists($inlookup{$zipRef->[$i]}) ) {
+                        $overlap++;
+                        push @$inIdxRef, $inlookup{$zipRef->[$i]};
+                        push @$zipIdxRef, $i;
+                }
+            }
+            if ($overlap==0) {
+                print STDERR "ERROR: No matching columns found\n";
+                print STDERR "in columns: [", join("][", @$inRef), "]\n";
+                print STDERR "zip columns: [", join("][", @$zipRef), "]\n";
+                die ("try specifying names via --[in/zip]keys, stopped");
+            }
+        } else {
+            die("both headers must be present to infer key columns or you must specify --keys, stopped");
+        }
+    } else {
+        $inkeys = $inkeys || $zipkeys;
+        $zipkeys = $zipkeys || $inkeys;
+        push @$inIdxRef, translateKeys(\%inlookup, [split(",", $inkeys)]);
+        push @$zipIdxRef, translateKeys(\%ziplookup, [split(",", $zipkeys)]);
+    }
+}
+
+sub findFields {
+    my ($inIdxRef, $zipIdxRef, $inRef, $zipRef, $infields, $zipfields, $inheader, $zipheader) = @_;
+
+    my (%inlookup, %ziplookup);
+    %inlookup = map{$inRef->[$_]=> $_} 0..$#$inRef if $inheader;
+    %ziplookup = map{$zipRef->[$_]=> $_} 0..$#$zipRef if $zipheader;
+
+    if ($infields eq "") {
+        push @$inIdxRef, 0..$#$inRef;
+    } elsif ($infields =~ s/^\.//) {
+        push @$inIdxRef, translateKeys(\%inlookup, [split(",", $infields)], 0);
+    } else {
+        push @$inIdxRef, translateKeys(\%inlookup, [split(",", $infields)]);
+    }
+    if ($zipfields eq "") {
+        push @$zipIdxRef, 0..$#$zipRef;
+    } elsif ($zipfields =~ s/^\.//) {
+        push @$zipIdxRef, translateKeys(\%ziplookup, [split(",", $zipfields)], 0);
+    } else {
+        push @$zipIdxRef, translateKeys(\%ziplookup, [split(",", $zipfields)]);
+    }
+}
+
+sub translateKeys {
+    my $idxRef = shift;
+    my $keysRef = shift;
+    my $failonnotfound = shift || 1;
+
+    my @b;
+
+    for(my $i=0; $i<=$#$keysRef; $i++) {
+        if(exists($idxRef->{$keysRef->[$i]})) {
+            push @b,  $idxRef->{$keysRef->[$i]};
+        } elsif ($keysRef->[$i] =~ m/^\d+\z/i && $keysRef->[$i]>0 && 
+                (!(keys %$idxRef) || $keysRef->[$i] < keys %$idxRef)) {
+            push @b, $keysRef->[$i]-1;
+        } elsif($failonnotfound) {
+            print STDERR "unable to parse \"", join(",",@$keysRef), "\"";
+            print STDERR "; \"$keysRef->[$i]\" could not be translated\n";
+            print STDERR "known column names: [", join("][", keys %$idxRef), "]\n", if keys %$idxRef;
+            die("stopped");
+        }
+    }
+
+    return @b;
+}
 
 sub getSortType {
     my ($sorttype, $dataRef, $filterRef) = @_;
@@ -157,7 +268,7 @@ sub getSortType {
 sub getNextLine {
     my $fh = shift;
     my $line = <$fh>;
-    #while($line !~ /^$comment/) {$line = <$fh>;}
+    while($line && $line =~ /^$comment/) {$line = <$fh>;}
     if ($line) {
         chomp($line);
         if (!$sep) {
