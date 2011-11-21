@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bn/perl
 use warnings FATAL => 'all';
 
 =head1 NAME
@@ -45,7 +45,7 @@ my $infields = "";
 my $zipfields = "";
 my $hasinheader = 1;
 my $haszipheader = 1;
-my $printoutheader = 0;
+my $printoutheader = 1;
 my $sorttype = "";
 my $outfile = "-";
 my $sep = "";
@@ -76,10 +76,12 @@ GetOptions("in=s" => \$infile,
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
 pod2usage(-verbose => 1) if $help || !$zipfile;
 
+$infile = $infile || shift @ARGV;
+
 cleanFileName(\$infile,\$inkeys,\$infields, $keys, $fields);
 cleanFileName(\$zipfile,\$zipkeys,\$zipfields, $keys, $fields);
 
-if ($infile = $infile || shift @ARGV) {
+if ($infile) {
     open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
 } elsif (!(-t STDIN)) {
     open(FIN, "-");
@@ -90,7 +92,7 @@ if ($infile = $infile || shift @ARGV) {
 open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
 open(FOUT, ">$outfile") or die("cannot open $outfile ($!), stopped");
 
-my (@inkeys, @infields, @zipkeys, @zipfields);
+my (@inkeys, @infields, @zipkeys, @zipfields, @innames, @zipnames);
 
 
 if ($mode eq "sorted") {
@@ -98,6 +100,8 @@ if ($mode eq "sorted") {
     my @filter = getNextLine(*LIN);
 
     findKeys(\@inkeys, \@zipkeys,\@data, \@filter, $inkeys, $zipkeys, $hasinheader, $haszipheader);
+    findFields(\@infields, \@zipfields,\@innames, \@zipnames, \@data, \@filter, 
+        $infields, $zipfields, $hasinheader, $haszipheader, \@inkeys, \@zipkeys);
 
     my @sorttype = getSortType($sorttype, [@data[@inkeys]], [@filter[@zipkeys]]);
 
@@ -119,12 +123,14 @@ if ($mode eq "sorted") {
     my (@data, @filter);
     my %lookup;
 
-    @data = getNextLine(*LIN) if $hasinheader;
-    @filter = getNextLine(*FIN) if $haszipheader;
+    @data = getNextLine(*FIN) if $hasinheader;
+    @filter = getNextLine(*LIN) if $haszipheader;
     
-    findKeys(\@inkeys, \@zipkeys,\@data, \@filter, $inkeys, $zipkeys, $hasinheader, $haszipheader);
-    findFields(\@infields, \@zipfields,\@data, \@filter, $infields, $zipfields, $hasinheader, $haszipheader);
-    
+    findKeys(\@inkeys, \@zipkeys,\@data, \@filter, 
+        $inkeys, $zipkeys, $hasinheader, $haszipheader);
+    findFields(\@infields, \@zipfields,\@innames, \@zipnames, \@data, \@filter, 
+        $infields, $zipfields, $hasinheader, $haszipheader, \@inkeys, \@zipkeys);
+
     while( @filter=getNextLine(*LIN) ) {
         my $key = join("\t", @filter[@zipkeys]);
         if (@zipfields) {
@@ -134,12 +140,14 @@ if ($mode eq "sorted") {
         }
     }
 
+    print FOUT join("\t", @innames, @zipnames), "\n" if $printoutheader;
     while( @data = getNextLine(*FIN) ) {
         my $key = join("\t", @data[@inkeys]);
         if (exists $lookup{$key} xor $exclude ) {
             my @m;
-            @m = @{$lookup{$key}} if exists $lookup{$key};
-            print FOUT join("\t", @data, @m), "\n";
+            push @m, @data[@infields] if @infields;
+            push @m, @{$lookup{$key}} if exists $lookup{$key};
+            print FOUT join("\t", @m), "\n";
         }
     }
 } else {
@@ -159,9 +167,11 @@ sub cleanFileName {
     
     if ($$filenameRef =~ s/\[([^\[].*)\]$//) {
         my @c = split(";", $1, -1);
-        $$keyRef = $$keyRef || $keys || $c[0];
-        $$fieldRef = $$fieldRef || ".".$fields || $c[1] || "." if @c==2;
+        $$keyRef = $$keyRef || $c[0] || $keys;
+        $$fieldRef = $$fieldRef || $c[1] || "." if @c==2;;
     }
+    $$keyRef = $$keyRef || $keys;
+    $$fieldRef = $$fieldRef || ".".$fields if $fields;
 }
 
 sub findKeys {
@@ -199,7 +209,8 @@ sub findKeys {
 }
 
 sub findFields {
-    my ($inIdxRef, $zipIdxRef, $inRef, $zipRef, $infields, $zipfields, $inheader, $zipheader) = @_;
+    my ($inIdxRef, $zipIdxRef, $inNameRef, $zipNameRef, $inRef, $zipRef, $infields, $zipfields, $inheader, $zipheader, $inkeysRef, $zipkeysRef) = @_;
+
 
     my (%inlookup, %ziplookup);
     %inlookup = map{$inRef->[$_]=> $_} 0..$#$inRef if $inheader;
@@ -212,19 +223,52 @@ sub findFields {
     } else {
         push @$inIdxRef, translateKeys(\%inlookup, [split(",", $infields)]);
     }
-    if ($zipfields eq "") {
-        push @$zipIdxRef, 0..$#$zipRef;
-    } elsif ($zipfields =~ s/^\.//) {
-        push @$zipIdxRef, translateKeys(\%ziplookup, [split(",", $zipfields)], 0);
+
+    my %alreadyincluded;
+    foreach (@$inIdxRef) {
+        if ($inheader && $zipheader) {
+            $alreadyincluded{ $ziplookup{ $inRef->[$_] } }=1 if exists $ziplookup{$inRef->[$_]};
+        } else {
+            my $ai = arrayIndex($_, @$inkeysRef);
+            if ($ai > -1) {
+                    $alreadyincluded{$zipkeysRef->[$ai]} = 1;
+            }
+        }
+    }
+
+    if ($zipfields eq "") { 
+        for (my $i=0; $i<@$zipRef; $i++) {
+            push (@$zipIdxRef, $i) if !exists($alreadyincluded{$i});
+        }
+    } else  {
+        my @f;
+        if ($zipfields =~ s/^\.//) {
+            @f = translateKeys(\%ziplookup, [split(",", $zipfields)], 0);
+        } else {
+            @f = translateKeys(\%ziplookup, [split(",", $zipfields)]);
+        }
+        foreach (@f) {
+            push (@$zipIdxRef, $_) if !exists($alreadyincluded{$_});
+        }
+    }
+
+    if ($inheader) {
+        push (@$inNameRef, map{$inRef->[$_]} @$inIdxRef);
     } else {
-        push @$zipIdxRef, translateKeys(\%ziplookup, [split(",", $zipfields)]);
+        push (@$inNameRef, map{"IN".$_} @$inIdxRef);
+    }
+    if ($zipheader) {
+        push (@$zipNameRef, map{$zipRef->[$_]} @$zipIdxRef);
+    } else {
+        push (@$zipNameRef, map{"ZIP".$_} @$zipIdxRef);
     }
 }
 
 sub translateKeys {
     my $idxRef = shift;
     my $keysRef = shift;
-    my $failonnotfound = shift || 1;
+    my $failonnotfound = shift;
+    $failonnotfound = 1 if !defined $failonnotfound;
 
     my @b;
 
@@ -296,4 +340,9 @@ sub compFields {
             }
         }
     }
+}
+
+sub indexArray(@)
+{        
+     1 while $_[0] ne pop; $#_;
 }
