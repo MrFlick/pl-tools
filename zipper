@@ -196,7 +196,7 @@ my $zipfields = "";
 my $hasheader;
 my $hasinheader;
 my $haszipheader;
-my $printoutheader = 1;
+my $printoutheader;
 my $sorttype = "";
 my $outfile = "-";
 my $sep = "";
@@ -241,6 +241,8 @@ $hasinheader = defined($hasinheader) ? $hasinheader :
 $haszipheader = defined($haszipheader) ? $haszipheader : 
     defined($hasheader) ? $hasheader :
     !looksLikeIndexes(split(",",$zipkeys), split(",",$zipfields)); 
+$printoutheader = defined($printoutheader) ? $printoutheader :
+    $hasinheader || $haszipheader;
 
 if ($infile) {
     open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
