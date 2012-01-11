@@ -3,22 +3,172 @@ use warnings FATAL => 'all';
 
 =head1 NAME
 
-zipper - matches up two sorted files based on multiple columns
-(like the C<join> command but with more than one field)
+zipper - merges (possibly sorted) files based on multiple columns
 
 =head1 SYNOPSIS
 
-zipper --in datafile --zip zipfile [--exclude] 
-    [--keys 0,1] [--inkeys 0,1] [--zipkeys 0,1] [--sep '\t']
-    [--out STDOUT] [--help] [--man]
+zipper --zip zipfile [--in datafile] [--mode "lookup"] [--exclude] 
+    [--keys keys] [--inkeys keys] [--zipkeys keys]
+    [--fields flds] [--infields flds] [--zipfields flds]
+    [--(no)header] [--(no)inheader] [--(no)zipheader] [--(no)outheader]
+    [--stats] [--sep '\t'] [--out STDOUT] [--help] [--man] [datafile]
 
 =head1 DESCRIPTION
 
-zipper will allow you to filter the values of one file to those
-that match values in another file. You can specify the fields
-to use for matching. Note that files must be sorted by the fields
-you use for filtering. By default, only lines matching the filter
-are returned, but you can get the compliment with C<--exclude>.
+zipper will allow you to merge two files. The default is to 
+load the zip file into memory and to join to the input file based
+on matching column names. If both files are sorted, C<--mode sorted>
+will be more efficient because it does not read the file into memory.
+
+=head2 OPTIONS
+
+=over 4
+
+=item B<--zip>
+
+This is the only required parameter. If using the default mode
+of "lookup", the zip file is read into memory first, so this should 
+be the smaller of the two files.
+
+=item B<--in>
+
+You may specify a datafile via this parameter. You may also pipe data
+into stdin or list a file name as a trailing parameter.
+
+=item B<--mode>
+
+The default mode is "lookup" which essentially reads the zip file into
+memory and uses it as a lookup table to match data to the datafile.
+The other option is "sorted" which assumeds both files are sorted by the
+keys used to match them. This mode is more efficient because the files are 
+processed line by line and are not read into memory.
+
+=item B<--exclude>
+
+The default action is to only include lines from the datafile that have
+matches in the zipfile. This option will do the opposite and only return
+rows from the datafile that are not in the zip file.
+
+=item B<--keys>, B<--inkeys>, B<--zipkeys>
+
+The C<--keys> parameter is a comma separated list of the columns that should
+be used to match up the two files. These can either be names of the columns
+from the header (if one is supplied) or the 1-based index of the columns. If
+the keys have different names or positions in the datafile and zipfile, you
+can specify them individually with the C<--inkeys> and C<--zipkeys> parameters.
+If left unspecified, and both files have a header, then the files will automatically
+be joined on the shared columns.
+
+=item B<--fields>, B<--infields>, B<--zipfields>
+
+Wile the C<--keys> parameter specifies how to match up two files, the C<--fields>
+paramter allows you to specify additional non-key columns that you would like to be
+returned from the input files. Again this can be a comma-separated list of either field
+names from the header, or 1-based column indexes.
+
+=item B<--header>, B<--noheader>, B<--inheader>, B<--zipheader>
+
+The C<--header> parameter indicates whether the input files had a header line
+which gives the name of each of the columns. If they do not have headers, you can
+pass C<--noheader>. If left unspecified, the program will guess if there are headers
+based on the values of C<--keys> and C<--fields>. If you only specify integer values,
+we assume no header, otherwise we assume there is a header. You can set different
+options for the datafile and zip file using C<--inheader>, C<--noinheader>, 
+C<--zipheader>, and C<--nozipheader>.
+
+=item B<--outheader>, B<--nooutheader>
+
+Indicates whether or not you would like to copy the column header names
+to your output. The default is to write headers if one or more of the datafile
+or zipfile has a header.
+
+=item B<--stats>
+
+(Experimental) Writes out some basic statistics about how many lines were read
+and matched from each file
+
+=item B<--sep>
+
+The field separater for the input files. Defaults to [tab].
+
+=item B<--out>
+
+By default the results will go to standard out, but you can redirect to a file
+by specifying a file name with C<--out filename.txt>.
+
+=item B<--help>
+
+Prints a brief help message and exits.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=back
+
+=head2 NOTES
+
+It is important to choose the correct mode. The default C<--mode lookup> will read all of the 
+zip file into memory and then process the data file libe by line. However, if your
+files are very large and are sorted already, then using C<--mode sorted> will read
+though both files simultaneously without using much memory. The sorted mode is good
+for larger files like BAM and VCF files.
+
+In addition to the C<--keys> and C<--fields> options, you can also specify
+these parameters in a shorthand filename syntax. Innediately following the file
+name, you can add brackets containing the keys, and optionally a semicolon with the
+fields you want from that file. Since brackets are often interpreted by the shell, you
+must escape them or place the file name in quotes. For example:
+C<--zip 'lookup.txt[fam,iid;height]' --in 'data.ped[fam,iid]'>. If you don't specify
+fields, all will be returned, but if you put in a semicolon followed by nothing, no
+additional fields are returned.
+
+Note that the order of the returned fields will always have the fields from the data file
+first, then the zip file.
+
+=head1 EXAMPLES
+
+Consider a sample data file pheno.txt
+    fid iid visit   pulse
+    1   1   1   72
+    1   1   2   75
+    1   2   1   71
+    1   2   2   72
+    2   1   1   70
+    2   3   1   68
+
+and a file subjects.txt 
+    fid iid name    age sex
+    1   1   Adam    25  M
+    2   1   Charity 22  F
+    2   3   Dave    14  M
+
+We can merge these two files with 
+    C<zipper --zip subjects.txt pheno.txt>
+
+which will return 
+    fid     iid     visit   pulse   name    age     sex
+    1       1       1       72      Adam    25      M
+    1       1       2       75      Adam    25      M
+    2       1       1       70      Charity 22      F
+    2       3       1       68      Dave    14      M
+
+Here the two files were automatically joined on fid and iid since they 
+had the same name in both files.
+
+If we wanted a list of all the phenotype observations which didn't
+have a corresponding subject, we could use
+    C<zipper --zip subjects.txt pheno.txt --exclude>
+
+If we prefer to use indexes, we could do that. However, when we use indexes
+C<zipper> assumes there are no headers so we will have to tell the program 
+that headers do exist with
+    C<zipper --zip subjects.txt --keys 1,2 --header pheno.txt>
+
+If we only wanted the sex and visit number in addition to the keys
+we could write
+    C<zipper --zip subjects.txt --fields "iid,fid,sex,visit" pheno.txt>
+
 
 =head1 AUTHOR
 
