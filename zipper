@@ -50,6 +50,7 @@ my $sorttype = "";
 my $outfile = "-";
 my $sep = "";
 my $comment = "#";
+my $stats = 0;
 my ($help, $man) = (0,0);
 
 GetOptions("in=s" => \$infile,
@@ -69,6 +70,7 @@ GetOptions("in=s" => \$infile,
     "out=s" => \$outfile,
     "sep=s" => \$sep,
     "comment=s" => \$comment,
+    "stats" => \$stats,
     "help|?" => \$help,
     "man" => \$man
 );
@@ -93,7 +95,7 @@ open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
 open(FOUT, ">$outfile") or die("cannot open $outfile ($!), stopped");
 
 my (@inkeys, @infields, @zipkeys, @zipfields, @innames, @zipnames);
-
+my ($inlines, $ziplines, $inzipmatches) =(0,0,0);
 
 if ($mode eq "sorted") {
     my @data = getNextLine(*FIN);
@@ -112,12 +114,15 @@ if ($mode eq "sorted") {
         my $comp = compFields(\@sorttype, @data[@inkeys], @filter[@zipkeys]);
         if ($comp<0) {
             print FOUT join("\t", @data), "\n" if $exclude;
+            $inlines++;
             @data = getNextLine(*FIN);
         } elsif ($comp==0) {
             print FOUT join("\t", @data, @filter[@zipfields]), "\n" if !$exclude;
+            $inlines++;
             @data = getNextLine(*FIN);
             #@filter = getNextLine(*LIN);
         } else {
+            $ziplines++;
             @filter = getNextLine(*LIN);
         }
     }
@@ -138,6 +143,7 @@ if ($mode eq "sorted") {
     @filter = getNextLine(*LIN) if $haszipheader;
 
     while( @filter ) {
+        $ziplines++;
         my $key = join("\t", @filter[@zipkeys]);
         if (@zipfields) {
             $lookup{$key}  = [join("\t", @filter[@zipfields])];
@@ -149,8 +155,10 @@ if ($mode eq "sorted") {
 
     print FOUT join("\t", @innames, @zipnames), "\n" if $printoutheader;
     while( @data ) {
+        $inlines++;
         my $key = join("\t", @data[@inkeys]);
         if (exists $lookup{$key} xor $exclude ) {
+            $inzipmatches++;
             my @m;
             push @m, @data[@infields] if @infields;
             push @m, @{$lookup{$key}} if exists $lookup{$key};
@@ -162,6 +170,9 @@ if ($mode eq "sorted") {
     print STDERR "Unknown mode: $mode\n";
 }
 
+if($stats) {
+    print "#stats {inlines:$inlines, ziplines:$ziplines, matches:$inzipmatches}\n";
+}
 close(FOUT);
 close(LIN);
 close(FIN);
