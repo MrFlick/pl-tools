@@ -326,29 +326,6 @@ sub documentOptionCmd {
 	return \%cmd;
 }
 
-sub stateChangeCmd {
-	my $name = shift @_;
-	my %opt = @_; 
-	my %cmd =  (
-		body => sub {
-			my ($stateRef, $cmdRef, $optRef) = @_;
-			my $newVal = $optRef->[0];
-			$newVal = "" if !defined $newVal;
-			$stateRef->{$name} = $newVal;
-			return "";
-		},
-		init => sub {
-			my ($stateRef, $cmdRef) = @_;
-			$stateRef->{$name} = "";
-		}
-	);
-	for my $o (keys %opt) {
-		$cmd{$o} = $opt{$o}
-	}
-	return \%cmd;
-};
-
-
 sub parseArguments {
 	my ($argRef, $logicRef) = @_;
     my $stringStarter="";
