@@ -1,9 +1,113 @@
 #!/usr/bin/perl
 
+=head1 NAME
+
+makeTex.pl - a utility for creating tex files containing existing images
+
+=head1 SYNOPSIS
+
+makeText.pl [--out name] [--pdf] [--help] [--man] [[(--)options] file(s)] ...
+
+=head1 DESCRIPTION
+
+This utility makes it easy to combine a bunch of images files into a PDF.
+Simply specify a list of images you would like to include in the PDF and
+and this utility will create a tex document which you can then edit or
+complile directly to pdf.
+
+=head2 OPTIONS
+
+=over 4
+
+=item B<--out=> 
+
+A name for the output tex file. If the name does not end in ".tex", this
+extension is autocalyically appeneded. If omitted, the results are sent
+to standard out. eg C<--out myfile.tex>.
+
+=item B<--pdf>
+
+If this flag is set, the output file is automatically send to pdflatex
+to be comiled.
+
+=item B<--help>
+
+Prints a brief help message and exits.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=back
+
+=head3 Document Options
+
+=over 8
+
+=item B<--documentclass=>
+
+This specifys the pdflatex document class. The default is "article."
+
+=back
+
+=head3 Inline Options
+
+=over 8
+
+=item B<--center>, B<--nocenter>
+
+Will determine if images are centered or not. The default is to be centered.
+
+=item B<--portrait>, B<--landscape>
+
+Will allow you to display images either in portrait mode (the default) or rotated
+to landscape mode.
+
+=item B<--height=>
+
+Allows you to specify a height for all images in standard latex syntax, ie "5in". The
+default is to not set a height  which will include images at their original size.
+
+=item B<--width=>
+
+Allows you to specify a width for all images in standard latex syntax, ie "5in". The
+default is to not set a width which will include images at their original size.
+
+=item B<--section=>
+
+Allows you to create a section header for a portion of the document
+
+=item B<--header=>
+
+Allows you to place a centered header on the document
+
+=back 
+
+=head2 NOTES
+
+Note that the order of the options you specify is important. With the inline options, these
+commands change how subsequent files are treated. All other commands are only executed once.
+
+=head1 EXAMPLES
+
+	makeTex.pl --section "Primary Results" primary*.png --section "Meta Results" meta*.png
+
+	makeText.pl --landscape --width 10in plot1.pdf plot2.pdf
+
+	makeText.pl --header "Final Plots" plots*.gif --out final.txt --pdf
+
+=header1 AUTHOR
+
+Matthew Flickinger (mflick@umich.edu)
+
+=cut
+
 use strict;
 use warnings;
 
-=for comment
+use Pod::Usage;
+
+=begin comment
 	Most of the logic is sctored in the $logic hash. Each entry
 	can register for certain events and can take action. There is
 	also a shared %state hash that actions can use to store settings.
@@ -129,7 +233,9 @@ my %logic = (
 	},
 	end => {
 		#dummy command
-	}
+	},
+	help => { discover => sub{$_[0]->{"HELP"}=1} },
+	man => { discover => sub{$_[0]->{"MAN"}=1} }
 );
 
 my %state= ();
@@ -137,6 +243,9 @@ my %state= ();
 my ($commandsRef, $optionsRef) = parseArguments(\@ARGV, \%logic);
 initState(\%state, \%logic);
 discoverState(\%state, \%logic, $commandsRef, $optionsRef);
+
+pod2usage(-verbose => 1) if $state{"HELP"};
+pod2usage(-exitstatus => 0, -verbose => 2) if $state{"MAN"};
 
 my $outfile = $state{"out"};
 if ($outfile) {
