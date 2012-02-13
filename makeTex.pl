@@ -65,13 +65,9 @@ my %logic = (
 	width => stateChangeCmd("width", options=>{min => 0, max => 1}),
 	height => stateChangeCmd("height", options=>{min => 0, max => 1}),
 	landscape => {
-		body => sub{
-			my ($stateRef, $cmdRef, $optRef) = @_;
-			$stateRef->{"landscape"} = 1;
-			return "";
-		},
 		init => sub {$_[0]->{"landscape"} = 0; },
-		discover => sub{$_[0]->{"haslandscape"} = 1;},
+		body => sub {$_[0]->{"landscape"} = 1; },
+		discover => sub {$_[0]->{"haslandscape"} = 1;},
 		preamble => sub {
 			my ($stateRef, $cmdRef) = @_;
 			if ($stateRef->{"haslandscape"}) {
@@ -80,11 +76,7 @@ my %logic = (
 		}
 	},
 	portrait => {
-		body => sub {
-			my ($stateRef, $cmdRef, $optRef) = @_;
-			$stateRef->{"landscape"} = 0;
-			return "";
-		},
+		body => sub {$_[0]->{"landscape"} = 0; },
 	},
 	center => {
 		init => sub {$_[0]->{"imgcenter"}=1},
@@ -150,7 +142,7 @@ my $outfile = $state{"out"};
 if ($outfile) {
 	$outfile = "$outfile.tex" if $outfile !~ m/\.tex$/;
 } else {
-	$outfile = "-";
+	$outfile = "-"; #stdout
 }
 open(TEX, ">$outfile");
 
@@ -170,17 +162,17 @@ if ($state{"pdf"}) {
 	if ($outfile ne "-") {
 		`pdflatex -halt-on-error $outfile`;
 		if ($? == -1) {
-			die("coud not launch pdflatex: $!, stopped");
+			die("could not launch pdflatex: $!, stopped");
 		} else {
 			my $retcode = $?>>8;
 			if ($retcode!=0) {
 				my $logfile = $outfile;
 				$logfile =~ s/tex$/log/;
-				die("pdflatex returned non-zero return code($retcode). check $logfile for further information");
+				die("pdflatex returned non-zero return code ($retcode). check $logfile for further information");
 			}
 		}
 	} else {
-		die("cannot create pdf unless out specify an --out name");
+		die("cannot create pdf unless you specify an --out name");
 	}
 }	
 
