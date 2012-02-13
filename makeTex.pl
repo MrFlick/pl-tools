@@ -63,15 +63,12 @@ Will determine if images are centered or not. The default is to be centered.
 Will allow you to display images either in portrait mode (the default) or rotated
 to landscape mode.
 
-=item B<--height=>
+=item B<--height=>, B<--width=>
 
-Allows you to specify a height for all images in standard latex syntax, ie "5in". The
-default is to not set a height  which will include images at their original size.
-
-=item B<--width=>
-
-Allows you to specify a width for all images in standard latex syntax, ie "5in". The
-default is to not set a width which will include images at their original size.
+Allows you to specify a height or width for all images in standard latex syntax, ie "5in". 
+Note that only one may be set at a time, so setting height, clears out a width. Images
+will therefore be scaled propotianlly. The default is to not set a height or width 
+which will include images at their original size.
 
 =item B<--section=>
 
@@ -166,11 +163,33 @@ my %logic = (
 		onlyonce => 1
 	},
 	documentclass => documentOptionCmd("documentclass","article"), 
-	width => stateChangeCmd("width", options=>{min => 0, max => 1}),
-	height => stateChangeCmd("height", options=>{min => 0, max => 1}),
+	width => {
+		options => {min => 0, max => 1},
+		init => sub {$_[0]->{"width"}="";},
+		body => sub {
+			my ($stateRef, $cmdRef, $optRef) = @_;
+			if ($optRef->[0]) {
+				$stateRef->{"height"} = "";
+			}
+			$stateRef->{"width"} = $optRef->[0];
+			return "";
+		}
+	},
+	height => {
+		options => {min => 0, max => 1},
+		init => sub {$_[0]->{"height"}="";},
+		body => sub {
+			my ($stateRef, $cmdRef, $optRef) = @_;
+			if ($optRef->[0]) {
+				$stateRef->{"width"} = "";
+			}
+			$stateRef->{"height"} = $optRef->[0];
+			return "";
+		}
+	},
 	landscape => {
 		init => sub {$_[0]->{"landscape"} = 0; },
-		body => sub {$_[0]->{"landscape"} = 1; },
+		body => sub {$_[0]->{"landscape"} = 1; return "";},
 		discover => sub {$_[0]->{"haslandscape"} = 1;},
 		preamble => sub {
 			my ($stateRef, $cmdRef) = @_;
@@ -180,14 +199,14 @@ my %logic = (
 		}
 	},
 	portrait => {
-		body => sub {$_[0]->{"landscape"} = 0; },
+		body => sub {$_[0]->{"landscape"} = 0; return "";},
 	},
 	center => {
 		init => sub {$_[0]->{"imgcenter"}=1},
-		body => sub {$_[0]->{"imgcenter"}=1}
+		body => sub {$_[0]->{"imgcenter"}=1; return "";}
 	},
 	nocenter => {
-		body => sub {$_[0]->{"imgcenter"}=0}
+		body => sub {$_[0]->{"imgcenter"}=0, return "";}
 	},
 	section => {
 		options => {min=>1, max=>1},
