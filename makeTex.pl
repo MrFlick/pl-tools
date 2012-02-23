@@ -151,8 +151,6 @@ use Pod::Usage;
 		* = once per element in logic, sig ($stateRef, $cmdRef)
 		** = once per appearance in command line, sig ($stateRef, $cmdRef, $optRef)
 		where $stateRef, $cmdRef are hash references, $optRef is an array ref
-
-reamble: 
 =cut
 
 my %logic = (
@@ -164,7 +162,7 @@ my %logic = (
 	},
 	documentclass => documentOptionCmd("documentclass","article"), 
 	width => {
-		options => {min => 0, max => 1},
+		options => nOptions(0,1),
 		init => sub {$_[0]->{"width"}="";},
 		body => sub {
 			my ($stateRef, $cmdRef, $optRef) = @_;
@@ -176,7 +174,7 @@ my %logic = (
 		}
 	},
 	height => {
-		options => {min => 0, max => 1},
+		options => nOptions(0,1),
 		init => sub {$_[0]->{"height"}="";},
 		body => sub {
 			my ($stateRef, $cmdRef, $optRef) = @_;
@@ -209,14 +207,14 @@ my %logic = (
 		body => sub {$_[0]->{"imgcenter"}=0, return "";}
 	},
 	section => {
-		options => {min=>1, max=>1},
+		options => nOptions(1),
 		body => sub {
 			my ($stateRef, $cmdRef, $optRef) = @_;
 			return "\\section{". $optRef->[0] . "}"
 		}
 	},
 	header => {
-		options => {min=>1, max=>1},
+		options => nOptions(1),
 		discover => sub {$_[0]->{"hasheader"} = 1;},
 		preamble => sub {
 			my ($stateRef, $cmdRef) = @_;
@@ -233,6 +231,26 @@ my %logic = (
 		body => sub {
 			my ($stateRef, $cmdRef, $optRef) = @_;
 			return "\\fancyhead[c]{". $optRef->[0] . "}"
+		}
+	},
+	break => {
+		body => sub {
+			return "\\newpage"
+		}
+	},
+	embed => {
+		options => nOptions(1),
+		body => sub {
+			my ($stateRef, $cmdRef, $optRef) = @_;
+			my $ret="";
+			for my $f (@$optRef) {
+				open(EIN, "<$f");
+				while(<EIN>) {
+					$ret .= $_;
+				}
+				close(EIN);
+			}
+			return $ret;
 		}
 	},
 	file => {
@@ -269,6 +287,7 @@ pod2usage(-exitstatus => 0, -verbose => 2) if $state{"MAN"};
 my $outfile = $state{"out"};
 if ($outfile) {
 	$outfile = "$outfile.tex" if $outfile !~ m/\.tex$/;
+	$outfile =~ s/\.pdf$/\.tex/;
 } else {
 	$outfile = "-"; #stdout
 }
@@ -303,6 +322,13 @@ if ($state{"pdf"}) {
 		die("cannot create pdf unless you specify an --out name");
 	}
 }	
+
+sub nOptions {
+	my $min = shift;
+	my $max = shift || $min;
+	my %opt = (min => $min, max => $max);
+	return \%opt;
+}
 
 sub documentOptionCmd {
 	my $name = shift @_;
