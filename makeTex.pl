@@ -78,6 +78,11 @@ Allows you to create a section header for a portion of the document
 
 Allows you to place a centered header on the document
 
+=item B<--embed=>
+
+It will include the full text of the file you specify into the body of the latex document.
+This is useful including tables created with the xtable package in R.
+
 =back 
 
 =head2 NOTES
