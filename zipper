@@ -11,6 +11,7 @@ zipper --zip zipfile [--in datafile] [--mode "lookup"] [--exclude]
     [--keys keys] [--inkeys keys] [--zipkeys keys]
     [--fields flds] [--infields flds] [--zipfields flds]
     [--(no)header] [--(no)inheader] [--(no)zipheader] [--(no)outheader]
+	[--no-merge] [--missing vals]
     [--stats] [--sep '\t'] [--out STDOUT] [--help] [--man] [datafile]
 
 =head1 DESCRIPTION
@@ -82,6 +83,19 @@ Indicates whether or not you would like to copy the column header names
 to your output. The default is to write headers if one or more of the datafile
 or zipfile has a header.
 
+=item B<--no-merge>
+
+By default, the non-key fields from the zip file are merged into the output. If 
+you want to supress the merging and only choose records with matching keys, use
+this option
+
+=item B<--missing>
+
+By default if a record does not have a match in the zip file, no output is returned.
+However, if you specify a <C--missing> value, this value will be returned for all
+zip fields for in file records without a match in the zip file. You can specify a comma
+delimited list of missing values to get a different missing values for each zip field.
+
 =item B<--stats>
 
 (Experimental) Writes out some basic statistics about how many lines were read
@@ -89,7 +103,7 @@ and matched from each file
 
 =item B<--sep>
 
-The field separater for the input files. Defaults to [tab].
+The field separater for the input files. Defaults to white space.
 
 =item B<--out>
 
@@ -201,6 +215,8 @@ my $sorttype = "";
 my $outfile = "-";
 my $sep = "";
 my $comment = "#";
+my $domerge = 1;
+my $missing = undef;
 my $stats = 0;
 my ($help, $man) = (0,0);
 
@@ -217,6 +233,8 @@ GetOptions("in=s" => \$infile,
     "inheader!" => \$hasinheader,
     "zipheader!" => \$haszipheader,
     "outheader!" => \$printoutheader,
+	"merge!" => \$domerge,
+	"missing=s" => \$missing,
     "exclude" => \$exclude,
     "sort=s" => \$sorttype,
     "out=s" => \$outfile,
@@ -265,7 +283,12 @@ if ($mode eq "sorted") {
     findKeys(\@inkeys, \@zipkeys,\@data, \@filter, $inkeys, $zipkeys, $hasinheader, $haszipheader);
     findFields(\@infields, \@zipfields,\@innames, \@zipnames, \@data, \@filter, 
         $infields, $zipfields, $hasinheader, $haszipheader, \@inkeys, \@zipkeys);
+	if (!$domerge) {
+		@zipfields = ();
+		@zipnames = ();
+	}
 
+	my ($useMissing, $missingValRef) = parseMissingOption($missing, \@zipfields);
     @data = getNextLine(*FIN) if $hasinheader;
     @filter = getNextLine(*LIN) if $haszipheader;
 
@@ -274,11 +297,15 @@ if ($mode eq "sorted") {
     while(@data && @filter) {
         my $comp = compFields(\@sorttype, @data[@inkeys], @filter[@zipkeys]);
         if ($comp<0) {
-            print FOUT join("\t", @data), "\n" if $exclude;
+			if ($useMissing) {
+				print FOUT join("\t", @data, @$missingValRef), "\n";
+			} elsif ($exclude) {
+				print FOUT join("\t", @data), "\n";
+			}
             $inlines++;
             @data = getNextLine(*FIN);
         } elsif ($comp==0) {
-            print FOUT join("\t", @data, @filter[@zipfields]), "\n" if !$exclude;
+			print FOUT join("\t", @data, @filter[@zipfields]), "\n" if !$exclude;
             $inlines++;
             @data = getNextLine(*FIN);
             #@filter = getNextLine(*LIN);
@@ -299,7 +326,12 @@ if ($mode eq "sorted") {
         $inkeys, $zipkeys, $hasinheader, $haszipheader);
     findFields(\@infields, \@zipfields,\@innames, \@zipnames, \@data, \@filter, 
         $infields, $zipfields, $hasinheader, $haszipheader, \@inkeys, \@zipkeys);
+	if (!$domerge) {
+		@zipfields = ();
+		@zipnames = ();
+	}
 
+	my ($useMissing, $missingValRef) = parseMissingOption($missing, \@zipfields);
     @data = getNextLine(*FIN) if $hasinheader;
     @filter = getNextLine(*LIN) if $haszipheader;
 
@@ -318,11 +350,16 @@ if ($mode eq "sorted") {
     while( @data ) {
         $inlines++;
         my $key = join("\t", @data[@inkeys]);
-        if (exists $lookup{$key} xor $exclude ) {
-            $inzipmatches++;
+        if ((exists $lookup{$key} | $useMissing) xor $exclude ) {
             my @m;
             push @m, @data[@infields] if @infields;
-            push @m, @{$lookup{$key}} if exists $lookup{$key};
+			if (exists $lookup{$key}) {
+				$inzipmatches++;
+				push @m, @{$lookup{$key}}
+			} else {
+				$inzipmatches+=$exclude;
+				push @m, @$missingValRef;
+			}
             print FOUT join("\t", @m), "\n";
         }
         @data = getNextLine(*FIN);
@@ -483,6 +520,26 @@ sub looksLikeIndexes {
         }
     }
     return $ret;
+}
+
+sub parseMissingOption {
+	my $missing = shift;
+	my $zipFieldRef = shift;
+	if(defined $missing) {
+		my @missingvalues = split(",",$missing);
+		@missingvalues = ("") if !@missingvalues;
+		my $zipCount = scalar(@$zipFieldRef);
+		my $missCount = scalar(@missingvalues);
+		while(@missingvalues < $zipCount) {
+			push @missingvalues, $missingvalues[scalar(@missingvalues) % $missCount];
+		}
+		if (@missingvalues > $zipCount) {
+			splice @missingvalues, $zipCount;
+		}
+		return 1, \@missingvalues;
+	} else {
+		return 0, [];
+	}
 }
 
 sub getSortType {
