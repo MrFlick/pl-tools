@@ -213,6 +213,7 @@ my $renameEarly = 0;
 my $lines = "";
 my $firstOnly = "";
 my $randomSubset = 0;
+my $fileSource = undef;
 my $hasInputHeader = 1;
 my $includeHeaderOutput = 1;
 my $outformat = "D";
@@ -228,6 +229,7 @@ GetOptions("sep=s" => \$sep,
     "format=s" => \$outformat,
     "first" => \$firstOnly,
 	"random=i" => \$randomSubset,
+	"source=s" => \$fileSource,
 	"header!" => \$hasInputHeader,
 	"outheader!" => \$includeHeaderOutput,
 	"comment=s" => \$commentMarker,
@@ -291,6 +293,9 @@ sub processFile {
 	} else {
 		@colheads = map($_,1..scalar(@colheads));
 	}
+	if($fileSource) {
+		push @colheads, $fileSource; #add fake column for file name
+	}
 
 	my ($qr, $sr, $isOk);
 	$isOk = 1;
@@ -321,6 +326,9 @@ sub processFile {
 			@c = split($sep, $line, @colheads);
 		} else {
 			@c = split(" ", $line, @colheads);
+		}
+		if ($fileSource) {
+			push @c, $file;
 		}
 		chomp @c;
 		if( &$qr(@c)) {
