@@ -12,7 +12,7 @@ zipper --zip zipfile [--in datafile] [--mode "lookup"] [--exclude]
     [--fields flds] [--infields flds] [--zipfields flds]
     [--(no)header] [--(no)inheader] [--(no)zipheader] [--(no)outheader]
 	[--no-merge] [--missing vals]
-    [--stats] [--sep '\t'] [--out STDOUT] [--help] [--man] [datafile]
+    [--stats] [--sep ''] [--out STDOUT] [--help] [--man] [datafile]
 
 =head1 DESCRIPTION
 
@@ -103,7 +103,9 @@ and matched from each file
 
 =item B<--sep>
 
-The field separater for the input files. Defaults to white space.
+The field separator for the input files. If left unspecified it will try to 
+guess the seperator by looking for tabs, commas, and finally whitespace. You can
+also specifi <C--insep> and <C--zipsep> separately if they are different.
 
 =item B<--out>
 
@@ -213,7 +215,9 @@ my $haszipheader;
 my $printoutheader;
 my $sorttype = "";
 my $outfile = "-";
-my $sep = "";
+my $sep = undef;
+my $insep = undef;
+my $zipsep = undef;
 my $comment = "#";
 my $domerge = 1;
 my $missing = undef;
@@ -239,6 +243,8 @@ GetOptions("in=s" => \$infile,
     "sort=s" => \$sorttype,
     "out=s" => \$outfile,
     "sep=s" => \$sep,
+    "insep=s" => \$insep,
+    "zipsep=s" => \$zipsep,
     "comment=s" => \$comment,
     "stats" => \$stats,
     "help|?" => \$help,
@@ -277,8 +283,8 @@ my (@inkeys, @infields, @zipkeys, @zipfields, @innames, @zipnames);
 my ($inlines, $ziplines, $inzipmatches) =(0,0,0);
 
 if ($mode eq "sorted") {
-    my @data = getNextLine(*FIN);
-    my @filter = getNextLine(*LIN);
+    my @data = getNextLine(*FIN, \$insep);
+    my @filter = getNextLine(*LIN, \$zipsep);
 
     findKeys(\@inkeys, \@zipkeys,\@data, \@filter, $inkeys, $zipkeys, $hasinheader, $haszipheader);
     findFields(\@infields, \@zipfields,\@innames, \@zipnames, \@data, \@filter, 
@@ -289,8 +295,8 @@ if ($mode eq "sorted") {
 	}
 
 	my ($useMissing, $missingValRef) = parseMissingOption($missing, \@zipfields);
-    @data = getNextLine(*FIN) if $hasinheader;
-    @filter = getNextLine(*LIN) if $haszipheader;
+    @data = getNextLine(*FIN, \$insep) if $hasinheader;
+    @filter = getNextLine(*LIN, \$zipsep) if $haszipheader;
 
     my @sorttype = getSortType($sorttype, [@data[@inkeys]], [@filter[@zipkeys]]);
 
@@ -303,15 +309,15 @@ if ($mode eq "sorted") {
 				print FOUT join("\t", @data), "\n";
 			}
             $inlines++;
-            @data = getNextLine(*FIN);
+            @data = getNextLine(*FIN, \$insep);
         } elsif ($comp==0) {
 			print FOUT join("\t", @data, @filter[@zipfields]), "\n" if !$exclude;
             $inlines++;
-            @data = getNextLine(*FIN);
+            @data = getNextLine(*FIN, \$insep);
             #@filter = getNextLine(*LIN);
         } else {
             $ziplines++;
-            @filter = getNextLine(*LIN);
+            @filter = getNextLine(*LIN, \$zipsep);
         }
     }
 
@@ -319,8 +325,8 @@ if ($mode eq "sorted") {
     my (@data, @filter);
     my %lookup;
 
-    @data = getNextLine(*FIN);
-    @filter = getNextLine(*LIN);
+    @data = getNextLine(*FIN, \$insep);
+    @filter = getNextLine(*LIN, \$zipsep);
 
     findKeys(\@inkeys, \@zipkeys,\@data, \@filter, 
         $inkeys, $zipkeys, $hasinheader, $haszipheader);
@@ -332,8 +338,8 @@ if ($mode eq "sorted") {
 	}
 
 	my ($useMissing, $missingValRef) = parseMissingOption($missing, \@zipfields);
-    @data = getNextLine(*FIN) if $hasinheader;
-    @filter = getNextLine(*LIN) if $haszipheader;
+    @data = getNextLine(*FIN, \$insep) if $hasinheader;
+    @filter = getNextLine(*LIN, \$zipsep) if $haszipheader;
 
     while( @filter ) {
         $ziplines++;
@@ -343,7 +349,7 @@ if ($mode eq "sorted") {
         } else {
             $lookup{$key} = [];
         }
-        @filter = getNextLine(*LIN);
+        @filter = getNextLine(*LIN, \$zipsep);
     }
 
     print FOUT join("\t", @innames, @zipnames), "\n" if $printoutheader;
@@ -362,7 +368,7 @@ if ($mode eq "sorted") {
 			}
             print FOUT join("\t", @m), "\n";
         }
-        @data = getNextLine(*FIN);
+        @data = getNextLine(*FIN, \$insep);
     }
 } else {
     print STDERR "Unknown mode: $mode\n";
@@ -565,9 +571,20 @@ sub getSortType {
 sub getNextLine {
     my $fh = shift;
     my $line = <$fh>;
+	my $sepRef = shift;
+	my $sep = $$sepRef || $sep;
     while($line && $line =~ /^$comment/) {$line = <$fh>;}
     if ($line) {
         chomp($line);
+		if(!defined $sep) {
+			if ($line =~ m/\t/) {
+				$$sepRef = $sep = "\t";
+			} elsif ($line =~ m/,/) {
+				$$sepRef = $sep = ",";
+			} else {
+				$$sepRef = $sep = "";
+			}
+		}
         if (!$sep) {
             return split(" ", $line);
         } else {
