@@ -586,9 +586,9 @@ sub getNextLine {
 			}
 		}
         if (!$sep) {
-            return split(" ", $line);
+            return split(" ", $line, -1);
         } else {
-            return split($sep, $line);
+            return split($sep, $line, -1);
         }
     } else {
         return split("","");
