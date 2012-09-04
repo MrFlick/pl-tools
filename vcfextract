@@ -117,6 +117,7 @@ my $tall = 0;
 my $ifMissing = ".";
 my $ifFlagged = "+";
 my $GTformat = "";
+my $widecolsep = ":";
 my $showOutHeader = 1;
 my ($help, $man) = (0,0);
 
@@ -128,6 +129,7 @@ GetOptions("info=s" => \$infoFields,
 	"missing=s" => \$ifMissing,
 	"flag=s" => \$ifFlagged,
     "gtformat=s" => \$GTformat,
+	"widesep=s" => \$widecolsep,
     "outheader!" => \$showOutHeader,
 	"help|?" => \$help,
 	"man" => \$man);
@@ -241,7 +243,7 @@ sub writeHeader {
                 #many geno, many samples; use sample:geno
                 for(my $s=0; $s<@$sampleRef; $s++) {
                     for(my $i=0; $i<@$genoRef; $i++) {
-                        push @headers, $sampleRef->[$s].":".$genoRef->[$i];
+                        push @headers, $sampleRef->[$s].$widecolsep.$genoRef->[$i];
                     }
                 }
             } elsif (scalar(@$genoRef)==1) {
@@ -420,8 +422,8 @@ sub createGenoDict {
     my @formats = split(":", $format);
     my @genos = split(":", $geno);
     my %genos;
-    for(my $i = 0; $i < @formats; $i++) {
-        $genos{$formats[$i]} = $genos[$i];
+    for(my $i = 0; $i < @formats && $i < @genos; $i++) {
+		$genos{$formats[$i]} = $genos[$i];
     }  
 	return \%genos;
 }
