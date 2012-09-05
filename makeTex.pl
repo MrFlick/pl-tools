@@ -98,7 +98,7 @@ commands change how subsequent files are treated. All other commands are only ex
 
 	makeText.pl --header "Final Plots" plots*.gif --out final.txt --pdf
 
-=header1 AUTHOR
+=head1 AUTHOR
 
 Matthew Flickinger (mflick@umich.edu)
 
