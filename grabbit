@@ -219,6 +219,7 @@ my $includeHeaderOutput = 1;
 my $outformat = "D";
 my ($help, $man)=(0,0);
 my $commentMarker = "#";
+my $keepComment = 0;
 
 GetOptions("sep=s" => \$sep,
     "where=s" => \$query,
@@ -233,6 +234,7 @@ GetOptions("sep=s" => \$sep,
 	"header!" => \$hasInputHeader,
 	"outheader!" => \$includeHeaderOutput,
 	"comment=s" => \$commentMarker,
+	"keepcomments!" => \$keepComment,
     "help|?" => \$help, 
     "man" => \$man);
 
@@ -269,7 +271,7 @@ sub processFile {
 	$totalFileCount ++;
 	my $firstLine = <FIN>;
 	my @colheads;
-	while ($firstLine =~ m/^$commentMarker/) {$firstLine = <FIN>};
+	while ($firstLine =~ m/^$commentMarker/) {print $firstLine if $keepComment; $firstLine = <FIN>};
 	if ($sep eq "?") {
 		my $cnttab = ($firstLine =~ tr/\t/\t/);
 		my $cntcomma = ($firstLine =~ tr/,/,/);
@@ -316,7 +318,10 @@ sub processFile {
 	@selcolheads = &$sr(@colheads);
 	my $line;
 	while((($line = $firstLine) and ($firstLine="")eq"") or defined($line = <FIN>)) {
-		next if $line =~ m/^$commentMarker/;
+		if ($line =~ m/^$commentMarker/) {
+			print $line if $keepComment;
+			next;
+		};
 		$totalLineCount ++;
 		my @c;
 		if ($sep eq ",") {
