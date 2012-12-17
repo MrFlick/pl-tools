@@ -242,7 +242,7 @@ pod2usage(-verbose => 1) if $help;
 pod2usage(-exitstatus => 0, -verbose=>2) if $man;
 
 my ($matchCount, $returned, $printed) = (0, 0, 0);
-my (@matchCache, @selcolheads);
+my (@matchCache, @matchCacheSource, @selcolheads);
 my ($lineCheckRef, $maxLine) = parseLineRange($lines);
 my ($totalLineCount, $totalFileCount) = (0,0);
 
@@ -363,9 +363,11 @@ sub processFile {
 					#random subset
 					if ($returned <= $randomSubset) {
 						push @matchCache, [@c];
+						push @matchCacheSource, $matchCount;
 					} elsif (rand() < $randomSubset/$returned) {
 						my $rep = int(rand(@matchCache));
 						$matchCache[$rep] = [@c];
+						$matchCacheSource[$rep] = $matchCount;
 					}
 				}
 				last if ($firstOnly and !$randomSubset) or ($maxLine>0 and $matchCount>=$maxLine);
@@ -383,6 +385,11 @@ sub processFile {
 
 sub clearCacheAndFinalize {
 	if (@matchCache>0) {
+		if ($randomSubset) {
+			#return records to original order
+			my @reorder = sort { $matchCacheSource[$a] <=> $matchCacheSource[$b] } 0..$#matchCache;
+			@matchCache = @matchCache[@reorder];
+		}
 		if (@matchCache==1 && $outformat eq "D") {
 			printCard($matchCache[0], \@selcolheads);
 		} else {
