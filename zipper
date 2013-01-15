@@ -299,7 +299,8 @@ if ($mode eq "sorted") {
     @filter = getNextLine(*LIN, \$zipsep) if $haszipheader;
 
     my @sorttype = getSortType($sorttype, [@data[@inkeys]], [@filter[@zipkeys]]);
-
+ 
+    print FOUT join("\t", @innames, @zipnames), "\n" if $printoutheader;
     while(@data && @filter) {
         my $comp = compFields(\@sorttype, @data[@inkeys], @filter[@zipkeys]);
         if ($comp<0) {
