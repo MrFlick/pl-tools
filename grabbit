@@ -7,8 +7,8 @@ grabbit - a utility for displaying choosen records from a delimited text file
 =head1 SYNOPSIS
 
 grabbit [--first] [--where filter] [--select columns] [--lines datalines] 
-[--rename columns] [--random number] [--sep] [--comment] [--format] 
-[--help] [--man] file ...
+[--rename columns] [--random number] [--sep] [--comment] [--keepcomments] 
+[--format] [--help] [--man] file ...
 
 =head1 DESCRIPTION
 
@@ -80,6 +80,11 @@ randomly select 5 lines from the first 50 lines from the file.
 
 Specify the character which indicates the rest of the line is
 a comment. By default this is "#".
+
+=item B<--keepcomments>
+
+By default, comments are not returned in the output. By setting
+this flag, all comments will be passed through
 
 =item B<--sep>
 
