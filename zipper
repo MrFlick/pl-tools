@@ -222,6 +222,7 @@ my $comment = "#";
 my $domerge = 1;
 my $missing = undef;
 my $stats = 0;
+my $debug = 0;
 my ($help, $man) = (0,0);
 
 GetOptions("in=s" => \$infile,
@@ -247,6 +248,7 @@ GetOptions("in=s" => \$infile,
     "zipsep=s" => \$zipsep,
     "comment=s" => \$comment,
     "stats" => \$stats,
+	"debug" => \$debug,
     "help|?" => \$help,
     "man" => \$man
 );
@@ -338,6 +340,13 @@ if ($mode eq "sorted") {
 		@zipnames = ();
 	}
 
+	if ($debug) {
+		print STDERR "inkeys: ", join(",", @inkeys), "\n";
+		print STDERR "zipkeys: ", join(",", @inkeys), "\n";
+		print STDERR "infields: ", join(",", @infields), "\n";
+		print STDERR "zipfields: ", join(",", @zipfields), "\n";
+	}
+
 	my ($useMissing, $missingValRef) = parseMissingOption($missing, \@zipfields);
     @data = getNextLine(*FIN, \$insep) if $hasinheader;
     @filter = getNextLine(*LIN, \$zipsep) if $haszipheader;
@@ -350,6 +359,7 @@ if ($mode eq "sorted") {
         } else {
             $lookup{$key} = [];
         }
+		print STDERR " + $key : $lookup{$key}\n" if $debug;
         @filter = getNextLine(*LIN, \$zipsep);
     }
 
@@ -357,6 +367,7 @@ if ($mode eq "sorted") {
     while( @data ) {
         $inlines++;
         my $key = join("\t", @data[@inkeys]);
+		print STDERR " - $key : \n" if $debug;
         if ((exists $lookup{$key} | $useMissing) xor $exclude ) {
             my @m;
             push @m, @data[@infields] if @infields;
@@ -369,6 +380,7 @@ if ($mode eq "sorted") {
 			}
             print FOUT join("\t", @m), "\n";
         }
+		print STDERR "\n" if $debug;
         @data = getNextLine(*FIN, \$insep);
     }
 } else {
@@ -596,6 +608,21 @@ sub getNextLine {
     }
 }
 
+sub gtoi {
+    my $x = shift;
+    if (lc $x eq "x") {
+        return 23;
+    } elsif (lc $x eq "y") {
+        return 24;
+    } elsif (lc $x eq "xy") {
+        return 25;
+    } elsif (lc $x eq "m" || lc $x eq "mt") {
+        return 26;
+    } else {
+        return $x;
+    }
+}
+
 sub compFields {
     my $sorttypeRef = shift @_;
     my @fields = @_;
@@ -604,6 +631,12 @@ sub compFields {
         if (@$sorttypeRef && $sorttypeRef->[$i] eq "n") {
             if($fields[$i] != $fields[$i+$fc]) {
                 return $fields[$i] <=> $fields[$i+$fc];
+            }
+        } elsif (@$sorttypeRef && $sorttypeRef->[$i] eq "g") {
+            my $v1 = gtoi($fields[$i]);
+            my $v2 = gtoi($fields[$i+$fc]);
+            if($v1 != $v2) {
+                return $v1 <=> $v2;
             }
         } else {
             if($fields[$i] ne $fields[$i+$fc]) {
