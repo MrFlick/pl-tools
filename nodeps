@@ -1,0 +1,118 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+my $short=0;
+
+GetOptions("short" => \$short);
+
+my $enableColor = 1;
+my $samplePattern = qr/\d+-RMM-\d+/;
+my $chrPattern = qr/(?:chr\d{1,2}|\d{1,2}:\d{3,}-\d{3,})/;
+my $platePattern = qr/plate\d{1,3}/;
+my $human = 1;
+
+my $first = 1;
+
+sub linesplit {
+	my $s = shift;
+	my @a = split(" ", $s, 11);
+	chomp @a;
+	return @a;
+}
+
+my %ci;
+my @nodes;
+if (@ARGV) {
+	@nodes = @ARGV;
+} else {
+	@nodes = (10..17);
+}
+
+for my $j (@nodes) {
+	my %samples;
+	my $effort=0;
+	open(PSIN, "mosbatch -E/tmp/ -j$j ps aux |");
+	if ($first) {
+		my $header = <PSIN>;
+		my @heads = linesplit($header);
+		%ci = map{$heads[$_]=>$_} 0..$#heads;
+		print join("\t", "NODE", @heads), "\n";
+	} else {
+		print "# $j ", "-" x 50, "\n";
+		<PSIN>; #skip header
+	}
+	while(<PSIN>) {
+		my $line = $_;
+		my @mysamples = $line =~ m/$samplePattern/g;
+		$line =~ s/($samplePattern)/addcolor(0,32,$1)/ge if $enableColor;
+		$line =~ s/($chrPattern)/addcolor(0,36,$1)/ge if $enableColor;
+		$line =~ s/($platePattern)/addcolor(0,35,$1)/ge if $enableColor;
+		foreach (@mysamples) {$samples{$_}=1};
+		my @cols = linesplit($line);
+		if ($cols[$ci{"%CPU"}]>1 or $cols[$ci{"%MEM"}]>0)  {
+			my $time = tosec($cols[$ci{"TIME"}]);
+			if ($human) {
+				$cols[$ci{"RSS"}] = dispbytes($cols[$ci{"RSS"}]);
+				$cols[$ci{"VSZ"}] = dispbytes($cols[$ci{"VSZ"}]);
+				$cols[$ci{"TIME"}] = disptime($time);
+			}
+			print join("\t",$j,@cols), "\n" if !$short;
+			if ($cols[$ci{"USER"}] ne "root") {
+				$effort += $time;
+			}
+		}
+	}
+	close(PSIN);
+	if (keys %samples) {
+		print "#in process (",scalar(keys(%samples)),"): ", join(", ", sort(keys(%samples))), "\n";
+	}
+	if ($effort) {
+		print "#effort: ", disptime($effort), "\n";
+	}
+	$first = 0;
+}
+sub addcolor {
+    my $c1 = shift;
+    my $c2 = shift;
+    my $val = shift;
+    if ($enableColor) {
+        return "\e[${c1};${c2}m$val\e[m";
+    } else {
+        return $val;
+    }
+}
+
+sub tosec {
+	my $time = shift;
+	my @parts = split(":", $time);
+	return $parts[0]*60+$parts[1];
+}
+
+sub disptime {
+	my $sec = shift;
+	my $val = int($sec/(24*60*60)) . "d ";
+	$val .= ($sec/(60*60))%24 . "h "; 
+	$val .= ($sec/60)%60 . "m ";
+	$val .= $sec%60 . "s";
+	return $val;
+}
+
+sub dispbytes {
+	my $byte = shift;
+	my $base = 1024;
+	$byte = $byte * $base;
+	my $ret;
+	if ($byte < 1024) {
+		$ret = "${byte}B";
+	} elsif ($byte < 1024*1024) {
+		$ret = sprintf("%.1fKB", $byte/1024);
+	} elsif ($byte < 1024*1024*1024) {
+		$ret = sprintf("%.1fMB", $byte/1024/1024);
+	} else {
+		$ret = sprintf("%.1fGB", $byte/1024/1024/1024);
+	}
+	return $ret;
+}

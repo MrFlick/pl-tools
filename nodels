@@ -1,0 +1,84 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Date::Parse;
+use POSIX qw(strftime);
+use Getopt::Long;
+
+my $recentMin = 10;
+my $enableColor = 1;
+
+my $first = 1;
+
+my $now = str2time(strftime("%Y-%m-%d %H:%M", localtime));
+my $path = "/tmp/bridges/pipe";
+my $recursive = 1;
+
+GetOptions("path=s" => \$path,
+	"recursive!" => \$recursive);
+
+sub linesplit {
+	my $s = shift;
+	my @a = split(" ", $s, 9);
+	#if (@a>7) {
+		my $date = join(" ", @a[5..6]);
+		splice @a, 5,2,$date;
+	#}
+	return @a;
+}
+
+my @nodes;
+if (@ARGV) {
+	@nodes = @ARGV;
+} else {
+	@nodes = (10..17);
+}
+
+for my $j (@nodes) {
+	my $cdir="";
+	my $resetDir=1;
+	my $recflag = ($recursive) ? "R" : "";
+	open(PSIN, "mosbatch -E$path -j$j ls -lah$recflag --time-style long-iso|");
+	if ($first) {
+		#print join("\t", "NODE", @heads), "\n";
+	} else {
+		print "#", addcolor(0,32, "-" x 50), " \n";
+	}
+	while(<PSIN>) {
+		next if m/^total/;
+		chomp;
+		if ($resetDir) {
+			$cdir = $_;
+			$cdir =~ s/:$//g;
+			$cdir =~ s/^.//g;
+			$resetDir = 0;
+			next;
+		}
+		if ($_ eq "") {
+			$resetDir = 1;
+			next;
+		}
+		my @cols = linesplit($_);
+		next if $cols[6] eq "." || $cols[6] eq "..";
+		$cols[6] = $cdir . "/" . $cols[6];
+		if ($now - str2time($cols[5])<60*$recentMin) {
+			$cols[6] = addcolor(0,32,$cols[6]);
+		}
+		print join("\t",$j,@cols), "\n";
+	}
+	close(PSIN);
+	$first = 0;
+}
+
+sub addcolor {
+	my $c1 = shift;
+	my $c2 = shift;
+	my $val = shift;
+	if ($enableColor) {
+		return "\e[${c1};${c2}m$val\e[m";
+	} else {
+		return $val;
+	}
+}
