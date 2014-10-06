@@ -275,6 +275,9 @@ sub processFile {
 
 	$totalFileCount ++;
 	my $firstLine = <FIN>;
+	if (!defined $firstLine) {
+		return 0;
+	}
 	my @colheads;
 	while ($firstLine =~ m/^$commentMarker/) {print $firstLine if $keepComment; $firstLine = <FIN>};
 	if ($sep eq "?") {
