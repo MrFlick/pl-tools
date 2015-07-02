@@ -285,7 +285,7 @@ sub processFile {
 		my $cntcomma = ($firstLine =~ tr/,/,/);
 		if ($cnttab>0) {
 			$sep="\t";
-	} elsif ($cntcomma>0) {
+		} elsif ($cntcomma>0) {
 			$sep=",";
 		} else {
 			$sep=" ";
@@ -338,6 +338,7 @@ sub processFile {
 		} elsif ($sep ne " ") {
 			@c = split($sep, $line, @colheads);
 		} else {
+			chomp $line;
 			@c = split(" ", $line, @colheads);
 		}
 		if ($fileSource) {
