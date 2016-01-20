@@ -633,12 +633,13 @@ sub collapseQuotes {
 	my $qstart=-1;
 	my $qtype="";
 	for(my $i=0; $i<@$ar; $i++) {
-		if ($ar->[$i] =~ /^["']/ ) {
+		# "real" escape quotes should be in odd bunches
+		if ($ar->[$i] =~ /^(["']+)/ && ((length $1) % 2) == 1 ) {
 			$qstart = $i;
 			$qtype = substr($ar->[$i], 0, 1);
 			$ar->[$i] = substr($ar->[$i], 1);
 		}
-		if ($qstart>=0 && $ar->[$i] =~ /$qtype$/) {
+		if ($qstart>=0 && $ar->[$i] =~ /([$qtype]+)$/ && ((length $1) % 2) == 1 ) {
 			$ar->[$i] = substr($ar->[$i], 0, length($ar->[$i])-1);
 			if ($i != $qstart) {
 				splice(@$ar, $qstart, $i-$qstart+1, join(",", @$ar[$qstart..$i]));
