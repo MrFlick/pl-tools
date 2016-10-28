@@ -271,14 +271,22 @@ $printoutheader = defined($printoutheader) ? $printoutheader :
     $hasinheader || $haszipheader;
 
 if ($infile) {
-    open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
+	if ($infile =~ m/\.gz$/) {
+		open(FIN, "zcat $infile|") or die("cannot open $infile ($!), stopped");
+	} else {
+		open(FIN, "<$infile") or die("cannot open $infile ($!), stopped");
+	}
 } elsif (!(-t STDIN)) {
     open(FIN, "-");
 }  else {
     pod2usage(-verbose => 1);
 }
 
-open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
+if ($zipfile =~ m/\.gz$/) {
+	open(LIN, "zcat $zipfile|") or die("cannot open $zipfile ($!), stopped");
+} else {
+	open(LIN, "<$zipfile") or die("cannot open $zipfile ($!), stopped");
+}
 open(FOUT, ">$outfile") or die("cannot open $outfile ($!), stopped");
 
 my (@inkeys, @infields, @zipkeys, @zipfields, @innames, @zipnames);
