@@ -283,10 +283,13 @@ sub processFile {
 	if ($sep eq "?") {
 		my $cnttab = ($firstLine =~ tr/\t/\t/);
 		my $cntcomma = ($firstLine =~ tr/,/,/);
+		my $cntpipe = ($firstLine =~ tr/\|/\|/);
 		if ($cnttab>0) {
 			$sep="\t";
 		} elsif ($cntcomma>0) {
 			$sep=",";
+		} elsif ($cntpipe>0) {
+			$sep="\\|";
 		} else {
 			$sep=" ";
 		}
